@@ -175,3 +175,20 @@ begin
 	call foo
 end .
 '''
+
+prog5 = '''
+procedure foo ;
+  var a ;
+begin
+  a := 1
+end ;
+while 1 == 1 do
+  while 2 == 2 do
+  begin
+  if 4 == 4 then
+    while 3 == 3 do
+      call foo ;
+  while 4 == 4 do
+    call foo
+  end .
+'''

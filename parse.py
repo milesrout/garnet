@@ -1,6 +1,10 @@
 import garnetast as ast
 import unittest
 
+def parse(source):
+    parser = Parser(source)
+    return parser.program()
+
 class Parser:
     def __init__(self, string):
         self.string = string

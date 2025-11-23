@@ -211,3 +211,36 @@ class StmtVisitor(Visitor):
     def visit_WhileStmt(self, stmt, *args, **kwds):
         self.visit(stmt.cond, *args, **kwds)
         self.visit(stmt.body, *args, **kwds)
+
+class ExampleLeafValueCounter(ExprVisitor):
+    def __init__(self):
+        import collections
+        self.counter = collections.Counter()
+
+    def visit_Decl(self, decl):
+        for ident, number in decl.const_decls:
+            self.counter[ident] += 1
+            self.counter[number] += 1
+        for ident in decl.var_decls:
+            self.counter[ident] += 1
+        for ident, decl1 in decl.proc_decls:
+            self.counter[ident] += 1
+            self.visit(decl1.stmt)
+        self.visit(decl.stmt)
+
+    def visit_ReadStmt(self, stmt):
+        self.counter[stmt.ident] += 1
+
+    def visit_AssignStmt(self, stmt):
+        self.counter[stmt.ident] += 1
+        self.visit(stmt.expr)
+
+    def visit_CallStmt(self, stmt):
+        self.counter[stmt.ident] += 1
+
+    def visit_IdentExpr(self, expr):
+        self.counter[expr.ident] += 1
+
+    def visit_NumberExpr(self, expr):
+        self.counter[expr.number] += 1
+
