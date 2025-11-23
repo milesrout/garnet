@@ -4,7 +4,9 @@ begin
   x := 0 ;
   while x < 10 do
     begin
+      y := x + x + x ;
       if x < 5 then x := 5 ;
+      y := x + x + x ;
       x := x + 1
     end ;
   y := x ;

@@ -15,7 +15,7 @@ class SsaConverter(ast.Visitor):
         self.escaped_variables = escaped_variables
 
         self.current_def = collections.defaultdict(dict)
-        self.incomplete_phis = collections.defaultdict(dict)
+        self.incomplete_params = collections.defaultdict(dict)
         self.blocks = []
         self.sealed_blocks = set()
         self.procedures = {}
@@ -31,29 +31,29 @@ class SsaConverter(ast.Visitor):
 
     def read_variable_recursive(self, variable, block):
         if block not in self.sealed_blocks:
-            value = block.emit(Inst.phi())
-            self.incomplete_phis[block][variable] = value
+            param, value = block.param(variable)
+            self.incomplete_params[block][variable] = (param, value)
         elif len(block.preds) == 1:
+            param, pvalue = block.param(variable)
             pred = next(iter(block.preds))
-            value = self.read_variable(variable, pred)
+            avalue = self.read_variable(variable, pred)
+            self.add_block_args(variable, param, pvalue)
+            self.set_variable(variable, block, pvalue)
+            return pvalue
         else:
-            value = block.emit(Inst.phi())
+            param, value = block.param(variable)
             self.set_variable(variable, block, value)
-            self.add_phi_operands(variable, value)
+            self.add_block_args(variable, param, value)
         self.write_variable(variable, block, value)
         return value
 
-    def emit_upsilon(self, variable, block, phi):
-        if block in self.current_def[variable]:
-            block.emit(Inst.upsilon(phi, self.current_def[variable][block]))
-
-    def add_phi_operands(self, variable, phi):
-        for pred in phi.block.preds:
-            self.emit_upsilon(variable, pred, phi)
+    def add_block_args(self, variable, param, value):
+        for pred in value.block.preds:
+            pred.add_arg(param, value, self.read_variable(variable, pred))
 
     def seal_block(self, block):
-        for variable, phi in self.incomplete_phis[block].items():
-            self.add_phi_operands(variable, phi)
+        for variable, (param, value) in self.incomplete_params[block].items():
+            self.add_block_args(variable, param, value)
         self.sealed_blocks.add(block)
 
     def new_block(self, addendum=None):
@@ -62,10 +62,6 @@ class SsaConverter(ast.Visitor):
             block.name += '_' + addendum
         self.blocks.append(block)
         return block
-
-    def finish(self):
-        proc = Procedure(self.blocks, set())
-        return proc
 
     def convert(self, prog):
         bbody = self.new_block('fentry')
@@ -77,6 +73,22 @@ class SsaConverter(ast.Visitor):
         bexit.ret()
         return Procedure(self.blocks, self.procedures)
 
+    def get_variable(self, ident, block):
+        if ident in self.free_variables[self.current_proc]:
+            return block.emit(Inst.load(ident))
+        elif ident in self.escaped_variables[self.current_proc]:
+            return block.emit(Inst.load(ident))
+        else:
+            return self.read_variable(ident, block)
+
+    def set_variable(self, ident, block, value):
+        if ident in self.free_variables[self.current_proc]:
+            block.emit(Inst.store(ident, value))
+        elif ident in self.escaped_variables[self.current_proc]:
+            block.emit(Inst.store(ident, value))
+        else:
+            self.write_variable(ident, block, value)
+
     ####
 
     def visit_Decl(self, decl, block):
@@ -86,36 +98,21 @@ class SsaConverter(ast.Visitor):
         for ident, decl1 in decl.proc_decls:
             converter = SsaConverter(self.constants, self.free_variables, self.escaped_variables)
             self.procedures[ident] = converter.convert(decl1)
+            self.procedures[ident].debug()
 
         for ident, number in self.constants:
-            value = block.emit(Inst.value(number))
+            value = block.emit(Inst.const(number))
             self.write_variable(ident, block, value)
 
         block = self.visit(decl.stmt, block)
         self.current_proc = old_current_proc
         return block
 
-    def get_variable(self, ident, block):
-        if ident in self.free_variables[self.current_proc]:
-            return block.emit(Inst.load_global(ident))
-        elif ident in self.escaped_variables[self.current_proc]:
-            return block.emit(Inst.load_global(ident))
-        else:
-            return self.read_variable(ident, block)
-
-    def set_variable(self, ident, block, value):
-        if ident in self.free_variables[self.current_proc]:
-            block.emit(Inst.store_global(ident, value))
-        elif ident in self.escaped_variables[self.current_proc]:
-            block.emit(Inst.store_global(ident, value))
-        else:
-            self.write_variable(ident, block, value)
-
     def visit_IdentExpr(self, expr, block):
         return self.get_variable(expr.ident, block)
 
     def visit_NumberExpr(self, expr, block):
-        return block.emit(Inst.value(expr.number))
+        return block.emit(Inst.const(expr.number))
 
     def visit_UnaryExpr(self, expr, block):
         unop_to_opcode = {
@@ -241,3 +238,7 @@ class TestSsaConverter(unittest.TestCase):
     def test_prog4(self):
         from examples import prog4
         self.do_test(prog4)
+
+    def test_prog5(self):
+        from examples import prog5
+        self.do_test(prog5)

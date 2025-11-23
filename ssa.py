@@ -2,15 +2,67 @@ import enum
 import itertools
 import unittest
 
-ABBREVIATE_PHI_EPSILON = False
+class ContinuationType(enum.Enum):
+    JUMP = enum.auto()
+    BRANCH = enum.auto()
+    RETURN = enum.auto()
+
+class ContinuationEdge:
+    def __init__(self, target):
+        self.target = target
+        self.args = {}
+
+    def add_arg(self, param, pvalue, avalue):
+        if pvalue.block != self.target:
+            return
+        self.args[param] = avalue
+
+class Continuation:
+    def __init__(self, type, args):
+        self.type = type
+        self.args = args
+
+    @staticmethod
+    def ret():
+        return Continuation(ContinuationType.RETURN, ())
+
+    @staticmethod
+    def jump(block):
+        eblock = ContinuationEdge(block)
+        return Continuation(ContinuationType.JUMP, (eblock,))
+
+    @staticmethod
+    def branch(value, then, alt):
+        ethen = ContinuationEdge(then)
+        ealt = ContinuationEdge(alt)
+        return Continuation(ContinuationType.BRANCH, (value, ethen, ealt))
+
+    def add_arg(self, param, pvalue, avalue):
+        for arg in self.args:
+            if isinstance(arg, ContinuationEdge):
+                arg.add_arg(param, pvalue, avalue)
+
+    def debug(self, names=None, end='\n', file=None):
+        parts = [str(self.type.name)]
+        for arg in self.args:
+            if isinstance(arg, ContinuationEdge):
+                if arg.args:
+                    params = (a.name + ':' + v.name(names) for a, v in arg.args.items())
+                    parts.append(arg.target.name + '(' + ', '.join(params) + ')')
+                else:
+                    parts.append(arg.target.name)
+            elif isinstance(arg, Value) and names is not None:
+                parts.append(arg.name(names))
+            else:
+                parts.append(str(arg))
+        print('\t' + ' '.join(parts), end=end, file=file)
 
 class Opcode(enum.Enum):
     NOP = enum.auto()
-    VALUE = enum.auto()
-    PHI = enum.auto()
-    UPSILON = enum.auto()
-    STORE_GLOBAL = enum.auto()
-    LOAD_GLOBAL = enum.auto()
+    CONST = enum.auto()
+    PARAM = enum.auto()
+    STORE = enum.auto()
+    LOAD = enum.auto()
     PRINT = enum.auto()
     SCAN = enum.auto()
     CALL = enum.auto()
@@ -26,39 +78,6 @@ class Opcode(enum.Enum):
     SEQ = enum.auto()
     SNE = enum.auto()
     NEG = enum.auto()
-
-class ContinuationType(enum.Enum):
-    JUMP = enum.auto()
-    BRANCH = enum.auto()
-    RETURN = enum.auto()
-
-class Continuation:
-    def __init__(self, type, args):
-        self.type = type
-        self.args = args
-
-    @staticmethod
-    def ret():
-        return Continuation(ContinuationType.RETURN, ())
-
-    @staticmethod
-    def jump(block):
-        return Continuation(ContinuationType.JUMP, (block,))
-
-    @staticmethod
-    def branch(value, then, alt):
-        return Continuation(ContinuationType.BRANCH, (value, then, alt))
-
-    def debug(self, names=None, end='\n', file=None):
-        parts = [str(self.type.name)]
-        for arg in self.args:
-            if isinstance(arg, Block):
-                parts.append(arg.name)
-            elif isinstance(arg, Value) and names is not None:
-                parts.append(names[arg.block, arg.index])
-            else:
-                parts.append(str(arg))
-        print('\t' + ' '.join(parts), end=end, file=file)
 
 class Type(enum.Enum):
     VOID = enum.auto()
@@ -76,14 +95,10 @@ class Inst:
         return ' '.join(parts)
 
     def debug(self, names, end='\n', file=None):
-        if self.opcode is Opcode.PHI and ABBREVIATE_PHI_EPSILON:
-            name = names[self]
-            print(f'\t{name} = ^{name}', file=file, end=end)
-            return
         parts = [str(self.opcode.name)]
         for arg in self.args:
             if isinstance(arg, Value):
-                parts.append(names[arg.block, arg.index])
+                parts.append(arg.name(names))
             elif isinstance(arg, Block):
                 parts.append(arg.name)
             else:
@@ -92,20 +107,20 @@ class Inst:
         print(f'\t{name} = ' + ' '.join(parts), end=end, file=file)
 
     @staticmethod
-    def value(imm):
-        return ValueInst(imm)
+    def const(const):
+        return ConstInst(const)
 
     @staticmethod
-    def upsilon(phi, value):
-        return UpsilonInst(phi, value)
+    def param(param):
+        return ParamInst(param)
 
     @staticmethod
-    def store_global(variable, value):
-        return StoreGlobalInst(variable, value)
+    def store(variable, value):
+        return StoreInst(variable, value)
 
     @staticmethod
-    def load_global(variable):
-        return LoadGlobalInst(variable)
+    def load(variable):
+        return LoadInst(variable)
 
     @staticmethod
     def call(procedure):
@@ -114,10 +129,6 @@ class Inst:
     @staticmethod
     def nop():
         return Inst(Opcode.NOP, ())
-
-    @staticmethod
-    def phi():
-        return Inst(Opcode.PHI, ())
 
     @staticmethod
     def print(value):
@@ -148,51 +159,73 @@ class Inst:
         return Inst(Opcode.MUL, (lhs, rhs))
 
 class Value:
+    pass
+
+class InstValue(Value):
     def __init__(self, block, index):
         self.block = block
         self.index = index
+
+    def name(self, names):
+        return names[self.block, self.index]
 
     def __str__(self):
         return f'{{{self.block.name}:{self.index}}}'
 
     def __eq__(self, other):
-        return self.block == other.block and self.index == other.index
+        return (type(self) == type(other) and
+                self.block == other.block and
+                self.index == other.index)
 
     def __hash__(self):
-        return hash((Value, self.block, self.index))
+        return hash((InstValue, self.block, self.index))
 
-class ValueInst(Inst):
-    def __init__(self, imm):
-        super().__init__(Opcode.VALUE, ())
-        self.imm = imm
+class ParamValue(Value):
+    def __init__(self, block, param):
+        self.block = block
+        self.param = param
+
+    def name(self, names):
+        return self.param.name
 
     def __str__(self):
-        return f'{self.opcode.name} {self.imm}'
+        return f'{{{self.block.name}:{self.param.name}}}'
+
+    def __eq__(self, other):
+        return (type(self) == type(other) and
+                self.block == other.block and
+                self.param == other.param)
+
+    def __hash__(self):
+        return hash((ParamValue, self.block, self.param))
+
+class ConstInst(Inst):
+    def __init__(self, const):
+        super().__init__(Opcode.CONST, ())
+        self.const = const
+
+    def __str__(self):
+        return f'{self.opcode.name} {self.const}'
 
     def debug(self, names, end='\n', file=None):
         super().debug(names, end=' ', file=file)
-        print(str(self.imm), end=end, file=file)
+        print(str(self.const), end=end, file=file)
 
-class UpsilonInst(Inst):
-    def __init__(self, phi, value):
-        super().__init__(Opcode.UPSILON, (value,))
-        self.phi = phi
+class ParamInst(Inst):
+    def __init__(self, param):
+        super().__init__(Opcode.PARAM, ())
+        self.param = param
 
     def __str__(self):
-        return super().__str__() + ' ^' + str(self.phi)
+        return super().__str__() + ' ~' + str(self.param)
 
     def debug(self, names, end='\n', file=None):
-        phi_name = names[self.phi.block, self.phi.index]
-        if ABBREVIATE_PHI_EPSILON:
-            val_name = names[self.args[0].block, self.args[0].index]
-            print(f'\t^{phi_name} = {val_name}', end=end, file=file)
-        else:
-            super().debug(names, end=' ', file=file)
-            print('^' + phi_name, end=end, file=file)
+        super().debug(names, end=' ', file=file)
+        print('~' + self.param.name, end=end, file=file)
 
-class StoreGlobalInst(Inst):
+class StoreInst(Inst):
     def __init__(self, variable, value):
-        super().__init__(Opcode.STORE_GLOBAL, (value,))
+        super().__init__(Opcode.STORE, (value,))
         self.variable = variable
 
     def __str__(self):
@@ -202,13 +235,13 @@ class StoreGlobalInst(Inst):
         super().debug(names, end=' ', file=file)
         print('%' + str(self.variable), end=end, file=file)
 
-class LoadGlobalInst(Inst):
+class LoadInst(Inst):
     def __init__(self, variable):
-        super().__init__(Opcode.LOAD_GLOBAL, ())
+        super().__init__(Opcode.LOAD, ())
         self.variable = variable
 
     def __str__(self):
-        return super().__str__() + ' $' + str(self.variable)
+        return super().__str__() + ' %' + str(self.variable)
 
     def debug(self, names, end='\n', file=None):
         super().debug(names, end=' ', file=file)
@@ -226,19 +259,25 @@ class CallInst(Inst):
         super().debug(names, end=' ', file=file)
         print('@' + str(self.procedure), end=end, file=file)
 
+class Param:
+    def __init__(self, name):
+        self.name = name
+
 class Block:
     anon_names = (f'b{i}' for i in itertools.count(1))
+    anon_params = (f'p{i}' for i in itertools.count(1))
     def __init__(self, name=None):
         self.insts = []
         if name is None:
-            name = next(Block.anon_names)
+            name = next(self.anon_names)
         self.name = name
         self.cont = None
         self.preds = set()
+        self.params = set()
 
     def emit(self, inst):
         self.insts.append(inst)
-        return Value(self, len(self.insts) - 1)
+        return InstValue(self, len(self.insts) - 1)
 
     def ret(self):
         assert self.cont is None or self.cont.type is ContinuationType.RETURN
@@ -255,8 +294,17 @@ class Block:
         then.preds.add(self)
         alt.preds.add(self)
 
+    def param(self, variable):
+        param = Param(next(self.anon_params))
+        self.params.add(param)
+        return param, ParamValue(self, param)
+
+    def add_arg(self, param, pvalue, avalue):
+        self.cont.add_arg(param, pvalue, avalue)
+
     def debug(self, end='\n', file=None):
-        print(self.name, end=':'+end, file=file)
+        params = ', '.join(param.name for param in self.params)
+        print(f'{self.name}({params}):', end=end, file=file)
         for i, inst in enumerate(self.insts):
             print(f'\t{i}:  {inst}', end=end, file=file)
         if self.cont is not None:
@@ -277,20 +325,14 @@ class Procedure:
                 if inst not in names:
                     names[inst] = names[block, i] = 'v' + str(next(counter))
         for block in self.blocks:
-            print(f'{block.name}:', end=end, file=file)
+            params = ', '.join(param.name for param in block.params)
+            if params:
+                print(f'{block.name}({params}):', end=end, file=file)
+            else:
+                print(f'{block.name}:', end=end, file=file)
             for inst in block.insts:
                 inst.debug(names, end=end, file=file)
             if block.cont is not None:
                 block.cont.debug(names, end=end, file=file)
             else:
                 print('\tNo jump', end=end, file=file)
-
-class TestSsa(unittest.TestCase):
-    def test_ssa(self):
-        b1 = Block()
-        b1.insts.append(Inst.nop())
-        b1.insts.append(Inst.value(1))
-        b1.insts.append(Inst.phi())
-        b1.insts.append(Inst.upsilon(Value(b1,2), Value(b1,1)))
-        b1.insts.append(Inst.add(Value(b1,1), Value(b1,1)))
-        b1.ret()
