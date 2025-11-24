@@ -2,7 +2,7 @@ from collections import defaultdict, deque
 import itertools
 import sys
 
-from ssa import Opcode, ContinuationType, Value
+from ssa import Opcode, ContinuationType, InstValue, ParamValue
 
 def debug_dominator_tree(graph, idom, name=None):
     print(f'debug_dominator_tree {name=}')
@@ -92,6 +92,12 @@ class LengauerTarjan:
                     self.idom[v] = self.idom[w]
         return self.idom
 
+    def dominators(self):
+        dom = {v: set() for v in self.nodes}
+        for k, v in self.idom.items():
+            dom[v].add(k)
+        self.dom = dom
+
     def dominates(self, u, v):
         """Returns whether u dominates v"""
         w = v
@@ -171,121 +177,50 @@ class LengauerTarjan:
                         self.frontier[b].add(w)
         go(self.dtreeroot)
 
-    def old_calcphiuses(self):
-        phiuses = defaultdict(set)
-        seen = set()
-        def go(v):
-            if v in seen:
-                return
-            seen.add(v)
-            for u in v.children:
-                go(u)
-            for i, inst in enumerate(v.block.insts):
-                if inst.opcode == Opcode.UPSILON:
-                    phiuses[inst.phi.block.insts[inst.phi.index]].add(Value(v.block, i))
-        go(self.graph.root)
-        self.phiuses = dict(phiuses.items())
-
-    def calcphiuses(self):
-        self.phiuses = defaultdict(set)
-        self.phidefs = defaultdict(set)
-        seen = set()
-        def go(v):
-            if v in seen:
-                return
-            seen.add(v)
-            for u in v.children:
-                go(u)
-            for i, inst in enumerate(v.block.insts):
-                if inst.opcode == Opcode.UPSILON:
-                    self.phiuses[self.tonode[inst.phi.block]].add(Value(v.block, i))
-                elif inst.opcode == Opcode.PHI:
-                    self.phidefs[v].add(Value(v.block, i))
-        go(self.graph.root)
-
-    def calcshadowvars(self):
-        killset = {}
-        shadows = []
-        for v in self.nodes:
-            killset[v] = set()
-            for i, inst in enumerate(v.block.insts):
-                if inst.opcode == Opcode.UPSILON:
-                    shadows.append(Value(v.block, i))
-                    killset[v].add(Value(v.block, i))
-        for v in self.nodes:
-            print(f'killset({v.block.name})=' + ' '.join(map(str, killset[v])))
-        print('shadows=[' + ' '.join(map(str, shadows)) + ']')
-        edgeups = defaultdict(set)
-        worklist = deque()
-        for upsilon in shadows:
-            block = self.tonode[upsilon.block]
-            for u in block.children:
-                edge = (block, u)
-                if edge in self.backedges:
-                    continue
-                print(edge)
-                if upsilon not in edgeups[edge]:
-                    edgeups[edge].add(upsilon)
-                    worklist.append(edge)
-        while worklist:
-            (a, b) = worklist.popleft()
-            print(f'{a=} {b=}')
-            current = edgeups[(a, b)]
-            for c in b.children:
-                e2 = (b, c)
-                if e2 in self.backedges:
-                    continue
-                print(f'{a=} {b=} {c=} current=' + ' '.join(map(str, current)))
-                new = set(current)
-                new.difference_update(killset[b])
-                print(f'{a=} {b=} {c=} new=' + ' '.join(map(str, new)))
-                if not edgeups[e2].issuperset(new):
-                    edgeups[e2] |= new
-                    worklist.append(e2)
-        phiuses = {v: set() for v in self.nodes}
-        for (a, b), ups in edgeups.items():
-            if (a, b) not in self.backedges:
-                phiuses[a] |= ups
-
     def liveness(self):
-        self.liveness_done = set()
         self.livein = {}
         self.liveout = {}
-        for v in self.nodes:
-            self.livein[v] = set()
-            self.liveout[v] = set()
-        self.liveness_dfs(self.graph.root)
-        for loop in self.loops.values():
-            self.looptree_dfs(loop)
+        for node in self.graph.nodes:
+            self.livein[node] = set()
+            self.liveout[node] = set()
+            for param in node.block.params:
+                pvalue = ParamValue(node.block, param)
+                self.livein[node].add(pvalue)
+            for arg in node.block.cont.get_args():
+                self.liveout[node].add(arg)
 
-    def liveness_dfs(self, v):
-        for u in v.children:
-            if (v, u) not in self.backedges and u not in self.liveness_done:
-                self.liveness_dfs(u)
-
-        live = set()
-        for u in v.children:
-            if (v, u) not in self.backedges:
-                live |= self.livein[u] - self.phidefs[u]
-        self.liveout[v] = set(live)
-        for i, inst in reversed(list(enumerate(v.block.insts))):
-            if inst.opcode != Opcode.PHI:
-                inst_value = Value(block=v.block, index=i)
-                for value in inst.args:
-                    live.add(value)
-                live.discard(inst_value)
-        self.livein[v] = live | self.phidefs[v]
-        self.liveness_done.add(v)
-
-    def looptree_dfs(self, loop):
-        if len(loop) > 1:
-            lhdr = self.loopheader[loop]
-            liveloop = self.livein[lhdr] - self.phidefs[lhdr]
-            for child in self.lchildren[loop]:
-                chdr = self.loopheader[child]
-                self.livein[chdr] |= liveloop
-                self.liveout[chdr] |= liveloop
-                self.looptree_dfs(child)
+    def colour(self):
+        self.colours = {}
+        def go(node):
+            # TODO: this initial assignment could be heuristically improved by
+            # selecting the permutation of the assigned registers such that the
+            # parameter assignments are most similar to the registers assigned
+            # to the continuation arguments that target this block, if they
+            # have already been computed.
+            assignment = {ParamValue(node.block, p): i for i, p in enumerate(node.block.params)}
+            assigned = set(range(len(node.block.params)))
+            last_use = {}
+            for i, inst in enumerate(node.block.insts):
+                for arg in inst.args:
+                    last_use[arg] = inst
+            if node.block.cont.type == ContinuationType.BRANCH:
+                last_use[node.block.cont.args[0]] = node.block.cont
+            for arg in node.block.cont.get_args():
+                last_use[arg] = node.block.cont
+            for i, inst in enumerate(node.block.insts):
+                for arg in inst.args:
+                    if last_use[arg] == inst:
+                        assigned.discard(assignment[arg])
+                inst_value = InstValue(node.block, i)
+                b = next(c for c in itertools.count(0) if c not in assigned)
+                assignment[inst_value] = b
+                if inst_value in last_use:
+                    assigned.add(b)
+            self.colours[node] = assignment
+            for c in self.dom[node]:
+                if c != node:
+                    go(c)
+        go(self.graph.root)
 
     def debug(self, file=None):
         if file is None:
@@ -303,41 +238,27 @@ class LengauerTarjan:
                     names[inst] = names[node.block, i] = 'v' + str(next(counter))
         idom = {k.index: v.index for k, v in self.idom.items()}
         print('digraph {', file=file)
-        #print('subgraph cluster_program {', file=file)
-        #print('label="CFG"', file=file)
         for node in self.graph.nodes:
             print('\t', node.index, f'[shape=box nojustify=true label="', file=file, end='')
-            print(f'{node.block.name}:', file=file, end='\\l')
+            params = ', '.join(param.name for param in node.block.params)
+            if params:
+                params = '(' + params + ')'
+            print(f'{node.block.name}{params}:', file=file, end='\\l')
             for inst in node.block.insts:
                 inst.debug(names, file=file, end='\\l')
             if node.block.cont is not None:
                 node.block.cont.debug(names, end='\\l', file=file)
             else:
                 print('\tNo jump', end='\\l', file=file)
-            #defs = ', '.join(sorted(list(names[k.block, k.index] for k in self.defs[node])))
-            #phidefs = ', '.join(sorted(list(names[k.block, k.index] for k in self.phidefs[node])))
-            #phiuses = [use for inst in node.block.insts if inst.opcode == Opcode.PHI for use in self.phiuses[inst]]
-            phidefs = ', '.join(sorted(list(names[k.block, k.index] for k in self.phidefs[node])))
-            phiuses = ', '.join(sorted(list(names[k.block, k.index] for k in self.phiuses[node])))
-            livein = ', '.join(sorted(list(names[k.block, k.index] for k in self.livein[node])))
-            liveout = ', '.join(sorted(list(names[k.block, k.index] for k in self.liveout[node])))
-            #upward = ', '.join(sorted(list(names[k.block, k.index] for k in self.upward[node])))
-            #useset = ', '.join(sorted(list(names[k.block, k.index] for k in self.useset[node])))
-            #livein = ', '.join(sorted(list(names[k.block, k.index] for k in self.livein[node])))
-            #if self.defs[node]:
-            #    print(f'Defs = {{{defs}}}', end='\\l', file=file)
-            if phidefs:
-                print(f'Phidefs = {{{phidefs}}}', end='\\l', file=file)
-            if phiuses:
-                print(f'Phiuses = {{{phiuses}}}', end='\\l', file=file)
+            livein = ', '.join(sorted(list(k.name(names) for k in self.livein[node])))
+            liveout = ', '.join(sorted(list(k.name(names) for k in self.liveout[node])))
+            colours = ', '.join(f'{v.name(names)}:r{i}' for v, i in self.colours[node].items())
             if livein:
                 print(f'Livein = {{{livein}}}', end='\\l', file=file)
             if liveout:
                 print(f'Liveout = {{{liveout}}}', end='\\l', file=file)
-            #if self.upward[node]:
-            #    print(f'Upward = {{{upward}}}', end='\\l', file=file)
-            #print(f'Useset = {{{useset}}}', end='\\l', file=file)
-            #print(f'Livein = {{{livein}}}', end='\\l', file=file)
+            if colours:
+                print(f'Colours = {{{colours}}}', end='\\l', file=file)
             print('" xlabel="', file=file, end='')
             print('"]', file=file)
             for i in range(len(node.children)):
@@ -360,9 +281,6 @@ class TestLengauerTarjanSSA(unittest.TestCase):
 
             def __repr__(self):
                 return self.block.name
-                #if hasattr(self, 'dfs'):
-                #    return f'(i:{self.index},d:{self.dfs})'
-                #return f'(i:{self.index})'
 
         def __init__(self, proc):
             bkwd = {}
@@ -376,10 +294,11 @@ class TestLengauerTarjanSSA(unittest.TestCase):
                     return
                 seen.add(node)
                 if node.block.cont.type == ContinuationType.JUMP:
-                    node.children = [self.nodes[bkwd[node.block.cont.args[0]]]]
+                    btarg = node.block.cont.args[0].target
+                    node.children = [self.nodes[bkwd[btarg]]]
                 elif node.block.cont.type == ContinuationType.BRANCH:
-                    btrue = node.block.cont.args[1]
-                    bfals = node.block.cont.args[2]
+                    btrue = node.block.cont.args[1].target
+                    bfals = node.block.cont.args[2].target
                     node.children = [self.nodes[bkwd[btrue]],
                                      self.nodes[bkwd[bfals]]]
                 else:
@@ -401,20 +320,19 @@ class TestLengauerTarjanSSA(unittest.TestCase):
         from convertssa import convertssa
         proc = convertssa(prog, const, escaped, free)
         for name, proc in [(name, proc), *proc.procedures.items()]:
-            print(name)
             proc.debug()
             graph = self.TestGraph(proc)
             lt = LengauerTarjan(graph)
             lt.semidominators()
             idom = lt.idominators()
+            lt.dominators()
             lt.calcbackedges()
             lt.calcloops()
             lt.calclnf()
             lt.dominatortree()
             lt.frontier()
-            lt.calcphiuses()
-            lt.calcshadowvars()
             lt.liveness()
+            lt.colour()
             if debug:
                 lt.debug()
                 input()
@@ -436,7 +354,7 @@ class TestLengauerTarjanSSA(unittest.TestCase):
             end ;
             x := y
         end .'''
-        self.do_test(prog, debug=False)
+        self.do_test(prog, debug=True)
 
     def test_prog0(self):
         from examples import prog0 as prog
@@ -444,27 +362,27 @@ class TestLengauerTarjanSSA(unittest.TestCase):
 
     def test_prog0a(self):
         from examples import prog0a as prog
-        self.do_test(prog, debug=False)
+        self.do_test(prog, debug=True)
 
     def test_prog1(self):
         from examples import prog1 as prog
-        self.do_test(prog, debug=False)
+        self.do_test(prog, debug=True)
 
     def test_prog2(self):
         from examples import prog2 as prog
-        self.do_test(prog, debug=False)
+        self.do_test(prog, debug=True)
 
     def test_prog3(self):
         from examples import prog3 as prog
-        self.do_test(prog, debug=False)
+        self.do_test(prog, debug=True)
 
     def test_prog4(self):
         from examples import prog4 as prog
-        self.do_test(prog, debug=False)
+        self.do_test(prog, debug=True)
 
     def test_prog5(self):
         from examples import prog5 as prog
-        self.do_test(prog, debug=False)
+        self.do_test(prog, debug=True)
 
 class TestLengauerTarjan(unittest.TestCase):
 

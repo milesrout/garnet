@@ -214,6 +214,7 @@ class TestSsaConverter(unittest.TestCase):
         prog = parser.program()
         const, escaped, free = checkvars(prog)
         proc = convertssa(prog, const, escaped, free)
+        proc.debug()
 
     def test_prog0(self):
         from examples import prog0

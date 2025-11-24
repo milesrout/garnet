@@ -17,6 +17,9 @@ class ContinuationEdge:
             return
         self.args[param] = avalue
 
+    def get_args(self):
+        return set(self.args.values())
+
 class Continuation:
     def __init__(self, type, args):
         self.type = type
@@ -42,12 +45,17 @@ class Continuation:
             if isinstance(arg, ContinuationEdge):
                 arg.add_arg(param, pvalue, avalue)
 
+    def get_args(self):
+        return set().union(*(arg.get_args()
+                           for arg in self.args
+                           if isinstance(arg, ContinuationEdge)))
+
     def debug(self, names=None, end='\n', file=None):
         parts = [str(self.type.name)]
         for arg in self.args:
             if isinstance(arg, ContinuationEdge):
                 if arg.args:
-                    params = (a.name + ':' + v.name(names) for a, v in arg.args.items())
+                    params = (a.name + '=' + v.name(names) for a, v in arg.args.items())
                     parts.append(arg.target.name + '(' + ', '.join(params) + ')')
                 else:
                     parts.append(arg.target.name)
