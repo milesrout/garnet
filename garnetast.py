@@ -85,6 +85,10 @@ class WhileStmt(Stmt):
         self.cond = cond
         self.body = body
 
+class LoopStmt(Stmt):
+    def __init__(self, body):
+        self.body = body
+
 class Visitor(abc.ABC):
     def visit(self, node, *args, **kwds):
         func = getattr(self, 'visit_' + node.__class__.__name__)
@@ -125,6 +129,9 @@ class Visitor(abc.ABC):
 
     @abstractmethod
     def visit_IfElseStmt(self, stmt, *args, **kwds): ...
+
+    @abstractmethod
+    def visit_LoopStmt(self, stmt, *args, **kwds): ...
 
     @abstractmethod
     def visit_WhileStmt(self, stmt, *args, **kwds): ...
@@ -173,6 +180,9 @@ class ExprVisitor(Visitor):
         self.visit(stmt.body, *args, **kwds)
         self.visit(stmt.alt, *args, **kwds)
 
+    def visit_LoopStmt(self, stmt, *args, **kwds):
+        self.visit(stmt.body, *args, **kwds)
+
     def visit_WhileStmt(self, stmt, *args, **kwds):
         self.visit(stmt.cond, *args, **kwds)
         self.visit(stmt.body, *args, **kwds)
@@ -207,6 +217,9 @@ class StmtVisitor(Visitor):
         self.visit(stmt.cond, *args, **kwds)
         self.visit(stmt.body, *args, **kwds)
         self.visit(stmt.alt, *args, **kwds)
+
+    def visit_LoopStmt(self, stmt, *args, **kwds):
+        self.visit(stmt.body, *args, **kwds)
 
     def visit_WhileStmt(self, stmt, *args, **kwds):
         self.visit(stmt.cond, *args, **kwds)

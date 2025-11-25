@@ -1,4 +1,5 @@
 import collections
+import contextlib
 import unittest
 import garnetast as ast
 from ssa import Block, Inst, Opcode, Procedure
@@ -20,6 +21,7 @@ class SsaConverter(ast.Visitor):
         self.sealed_blocks = set()
         self.procedures = {}
         self.current_proc = None
+        self.current_break = None
 
     def write_variable(self, variable, block, value):
         self.current_def[variable][block] = value
@@ -192,6 +194,17 @@ class SsaConverter(ast.Visitor):
         self.seal_block(bexit)
         return bexit
 
+    def visit_LoopStmt(self, stmt, bentry):
+        bbody = self.new_block('lbody')
+        bexit = self.new_block('lexit')
+        bentry.jump(bbody)
+        with self.with_break(bexit):
+            bbodyend = self.visit(stmt.body, bbody)
+        bbodyend.jump(bbody)
+        self.seal_block(bbody)
+        self.seal_block(bexit)
+        return bexit
+
     def visit_WhileStmt(self, stmt, bentry):
         bheader = self.new_block('wheader')
         bbody = self.new_block('wbody')
@@ -200,11 +213,19 @@ class SsaConverter(ast.Visitor):
         cond = self.visit(stmt.cond, bheader)
         bheader.branch(cond, bbody, bexit)
         self.seal_block(bbody)
-        bbodyend = self.visit(stmt.body, bbody)
+        with self.with_break(bexit):
+            bbodyend = self.visit(stmt.body, bbody)
         bbodyend.jump(bheader)
         self.seal_block(bheader)
         self.seal_block(bexit)
         return bexit
+
+    @contextlib.contextmanager
+    def with_break(self, block):
+        old_break = self.current_break
+        self.current_break = block
+        yield
+        self.current_break = old_break
 
 class TestSsaConverter(unittest.TestCase):
     def do_test(self, source):

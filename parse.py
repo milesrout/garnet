@@ -11,7 +11,7 @@ class Parser:
         self.tokens = self.string.strip().split()
         self.index = 0
         self.keywords = ('const var procedure call begin end '
-                        'if then else while do odd'.split())
+                        'if then else while do odd loop'.split())
         self.token_type = self.calc_token_type()
 
     def calc_token_type(self):
@@ -118,6 +118,9 @@ class Parser:
             self.expect('do')
             body = self.statement()
             return ast.WhileStmt(cond, body)
+        if self.accept('loop'):
+            body = self.statement()
+            return ast.LoopStmt(body)
         i = self.ident()
         self.expect(':=')
         e = self.expression()
