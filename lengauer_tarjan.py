@@ -19,14 +19,47 @@ def debug_dominator_tree(graph, idom, name=None):
             print('\t', f'D{j}', '->',  f'D{i}', file=file)
         print('}', file=file)
 
+class Node:
+    def __init__(self, block, index):
+        self.preds = []
+        self.children = []
+        self.block = block
+        self.index = index
+
 class LengauerTarjan:
-    def __init__(self, graph):
-        self.graph = graph
-        self.ancestor = [self.graph.nodes[i] for i in range(len(graph.nodes))]
-        self.semi = [self.graph.nodes[i] for i in range(len(graph.nodes))]
-        self.label = [self.graph.nodes[i] for i in range(len(graph.nodes))]
-        self.nodes = []
-        self.tonode = {}
+    @classmethod
+    def _graph(self, proc):
+        bkwd = {}
+        nodes = []
+        for i, block in enumerate(proc.blocks):
+            nodes.append(Node(block, i))
+            bkwd[block] = i
+        seen = set()
+        def go(node):
+            if node in seen:
+                return
+            seen.add(node)
+            if node.block.cont.type == ContinuationType.JUMP:
+                btarg = node.block.cont.args[0].target
+                node.children = [nodes[bkwd[btarg]]]
+            elif node.block.cont.type == ContinuationType.BRANCH:
+                btrue = node.block.cont.args[1].target
+                bfals = node.block.cont.args[2].target
+                node.children = [nodes[bkwd[btrue]], nodes[bkwd[bfals]]]
+            else:
+                node.children = []
+            for child in node.children:
+                go(child)
+            node.preds = [nodes[bkwd[b]] for b in node.block.preds]
+        go(nodes[0])
+        return nodes, nodes[0]
+
+    def __init__(self, proc):
+        self.nodes, self.root = self._graph(proc)
+        self.ancestor = [self.nodes[i] for i in range(len(self.nodes))]
+        self.semi = [self.nodes[i] for i in range(len(self.nodes))]
+        self.label = [self.nodes[i] for i in range(len(self.nodes))]
+        self.dfsnodes = []
         self._dfs()
 
     def _dfs(self):
@@ -42,19 +75,17 @@ class LengauerTarjan:
             for u in v.children:
                 go(u)
                 u.parent = v
-        go(self.graph.root)
-        self.graph.root.parent = self.graph.root
-        self.nodes = list(reversed(nodes))
-        for node in self.nodes:
-            if hasattr(node, 'block'):
-                self.tonode[node.block] = node
+        go(self.root)
+        self.root.parent = self.root
+        self.dfsnodes = list(reversed(nodes))
 
     def find(self, v):
-        if self.ancestor[v.index] == v:
+        a = self.ancestor[v.index]
+        if a == v:
             return v
-        r = self.find(self.ancestor[v.index])
-        if self.semi[self.label[self.ancestor[v.index].index].dfs].dfs < self.semi[self.label[v.index].dfs].dfs:
-            self.label[v.index] = self.label[self.ancestor[v.index].index]
+        r = self.find(a)
+        if self.semi[self.label[a.index].dfs].dfs < self.semi[self.label[v.index].dfs].dfs:
+            self.label[v.index] = self.label[a.index]
         self.ancestor[v.index] = r
         return r
 
@@ -65,7 +96,7 @@ class LengauerTarjan:
         return v
 
     def semidominators(self):
-        for v in self.nodes:
+        for v in self.dfsnodes:
             self.semi[v.dfs] = v.parent
             for u in v.preds:
                 if u.dfs < v.dfs:
@@ -76,11 +107,10 @@ class LengauerTarjan:
                     if self.semi[su.dfs].dfs < self.semi[v.dfs].dfs:
                         self.semi[v.dfs] = self.semi[su.dfs]
             self.ancestor[v.index] = v.parent
-        return self.semi
 
     def idominators(self):
         self.idom = {}
-        for v in reversed(self.nodes):
+        for v in reversed(self.dfsnodes):
             s_v = self.semi[v.dfs]
             if s_v == v.parent:
                 self.idom[v] = s_v
@@ -90,10 +120,9 @@ class LengauerTarjan:
                     self.idom[v] = s_v
                 else:
                     self.idom[v] = self.idom[w]
-        return self.idom
 
     def dominators(self):
-        dom = {v: set() for v in self.nodes}
+        dom = {v: set() for v in self.dfsnodes}
         for k, v in self.idom.items():
             dom[v].add(k)
         self.dom = dom
@@ -109,7 +138,7 @@ class LengauerTarjan:
 
     def calcbackedges(self):
         self.backedges = set()
-        for v in self.nodes:
+        for v in self.dfsnodes:
             for u in v.children:
                 if self.dominates(u, v):
                     self.backedges.add((v, u))
@@ -180,7 +209,7 @@ class LengauerTarjan:
     def liveness(self):
         self.livein = {}
         self.liveout = {}
-        for node in self.graph.nodes:
+        for node in self.nodes:
             self.livein[node] = set()
             self.liveout[node] = set()
             for param in node.block.params:
@@ -220,7 +249,7 @@ class LengauerTarjan:
             for c in self.dom[node]:
                 if c != node:
                     go(c)
-        go(self.graph.root)
+        go(self.root)
 
     def debug(self, file=None):
         if file is None:
@@ -232,13 +261,13 @@ class LengauerTarjan:
     def _debug(self, file):
         names = {}
         counter = itertools.count(1)
-        for node in self.graph.nodes:
+        for node in self.nodes:
             for i, inst in enumerate(node.block.insts):
                 if inst not in names:
                     names[inst] = names[node.block, i] = 'v' + str(next(counter))
         idom = {k.index: v.index for k, v in self.idom.items()}
         print('digraph {', file=file)
-        for node in self.graph.nodes:
+        for node in self.nodes:
             print('\t', node.index, f'[shape=box nojustify=true label="', file=file, end='')
             params = ', '.join(param.name for param in node.block.params)
             if params:
@@ -253,10 +282,10 @@ class LengauerTarjan:
             livein = ', '.join(sorted(list(k.name(names) for k in self.livein[node])))
             liveout = ', '.join(sorted(list(k.name(names) for k in self.liveout[node])))
             colours = ', '.join(f'{v.name(names)}:r{i}' for v, i in self.colours[node].items())
-            if livein:
-                print(f'Livein = {{{livein}}}', end='\\l', file=file)
-            if liveout:
-                print(f'Liveout = {{{liveout}}}', end='\\l', file=file)
+            #if livein:
+            #    print(f'Livein = {{{livein}}}', end='\\l', file=file)
+            #if liveout:
+            #    print(f'Liveout = {{{liveout}}}', end='\\l', file=file)
             if colours:
                 print(f'Colours = {{{colours}}}', end='\\l', file=file)
             print('" xlabel="', file=file, end='')
@@ -270,48 +299,6 @@ class LengauerTarjan:
 import unittest
 
 class TestLengauerTarjanSSA(unittest.TestCase):
-
-    class TestGraph:
-        class Node:
-            def __init__(self, index, block):
-                self.preds = []
-                self.children = []
-                self.index = index
-                self.block = block
-
-            def __repr__(self):
-                return self.block.name
-
-        def __init__(self, proc):
-            bkwd = {}
-            self.nodes = []
-            for i, block in enumerate(proc.blocks):
-                self.nodes.append(self.Node(i, block))
-                bkwd[block] = i
-            seen = set()
-            def go(node):
-                if node in seen:
-                    return
-                seen.add(node)
-                if node.block.cont.type == ContinuationType.JUMP:
-                    btarg = node.block.cont.args[0].target
-                    node.children = [self.nodes[bkwd[btarg]]]
-                elif node.block.cont.type == ContinuationType.BRANCH:
-                    btrue = node.block.cont.args[1].target
-                    bfals = node.block.cont.args[2].target
-                    node.children = [self.nodes[bkwd[btrue]],
-                                     self.nodes[bkwd[bfals]]]
-                else:
-                    node.children = []
-                for child in node.children:
-                    go(child)
-                node.preds = [self.nodes[bkwd[b]] for b in node.block.preds]
-            go(self.nodes[0])
-            self.root = self.nodes[0]
-
-        def __repr__(self):
-            return f'TestGraph({self.nodes=}, {self.root=})'
-
     def do_test(self, source, debug=False, name=None):
         from parse import parse
         from checkvars import checkvars
@@ -321,10 +308,9 @@ class TestLengauerTarjanSSA(unittest.TestCase):
         proc = convertssa(prog, const, escaped, free)
         for name, proc in [(name, proc), *proc.procedures.items()]:
             proc.debug()
-            graph = self.TestGraph(proc)
-            lt = LengauerTarjan(graph)
+            lt = LengauerTarjan(proc)
             lt.semidominators()
-            idom = lt.idominators()
+            lt.idominators()
             lt.dominators()
             lt.calcbackedges()
             lt.calcloops()
@@ -383,157 +369,3 @@ class TestLengauerTarjanSSA(unittest.TestCase):
     def test_prog5(self):
         from examples import prog5 as prog
         self.do_test(prog, debug=True)
-
-class TestLengauerTarjan(unittest.TestCase):
-
-    class TestGraph:
-        class Node:
-            def __init__(self, index):
-                self.preds = []
-                self.children = []
-                self.index = index
-
-            def __repr__(self):
-                if hasattr(self, 'dfs'):
-                    return f'(i:{self.index},d:{self.dfs})'
-                return f'(i:{self.index})'
-
-        def __init__(self, nodes, edges):
-            self.nodes = []
-            for i, v in enumerate(nodes):
-                self.nodes.append(self.Node(i))
-            for u, v in edges:
-                self.nodes[v].preds.append(self.nodes[u])
-                self.nodes[u].children.append(self.nodes[v])
-            self.root = self.nodes[0]
-
-        def __repr__(self):
-            return f'TestGraph({self.nodes=}, {self.root=})'
-
-    def do_test_lt(self, nverts, edges, expected):
-        graph = self.TestGraph(list(range(nverts)), edges)
-        lt = LengauerTarjan(graph)
-        lt.semidominators()
-        idom = lt.idominators()
-        idom = {k.index: v.index for k, v in idom.items()}
-        self.assertEqual(idom, expected)
-        return graph, idom
-
-    def test_lt0(self):
-        nverts = 3
-        edges = [(0,1),(0,2)]
-        expected = {0:0, 1:0, 2:0}
-        self.do_test_lt(nverts, edges, expected)
-
-    def test_lt1(self):
-        nverts = 4
-        edges = [(0,1),(0,2),(1,3),(2,3)]
-        expected = {0:0, 1:0, 2:0, 3:0}
-        self.do_test_lt(nverts, edges, expected)
-
-    def test_lt2(self):
-        nverts = 5
-        edges = [(0,1),(0,2),(1,3),(2,3),(3,4)]
-        expected = {0:0, 1:0, 2:0, 3:0, 4:3}
-        self.do_test_lt(nverts, edges, expected)
-        edges.append((3,0))
-        self.do_test_lt(nverts, edges, expected)
-
-    def test_lt4(self):
-        nverts = 9
-        edges = [
-            (0,1),(0,2),(1,4),(2,3),(2,4),(3,5),
-            (4,6),(5,3),(5,7),(6,8),(7,5),(7,8)
-        ]
-        expected = {0:0, 1:0, 2:0, 4:0, 8:0, 6:4, 3:2, 5:3, 7:5}
-        self.do_test_lt(nverts, edges, expected)
-
-    def test_lt5(self):
-        nverts = 7
-        edges = [(0,1),(0,2),(1,2),(2,3),(3,4),(1,5),(5,6),(6,4)]
-        expected = {0:0, 1:0, 2:0, 3:2, 4:0, 5:1, 6:5}
-        self.do_test_lt(nverts, edges, expected)
-
-    # Misra's example
-    def test_misra(self):
-        nverts = 13
-        edges = [
-            (0,1),(0,2),(0,3),(1,4),(2,1),(2,4),(2,5),(3,6),(3,7),
-            (4,12),(5,8),(6,9),(7,9),(7,10),(8,5),(8,11),(9,11),(10,9),
-            (11,0),(11,9),(12,8)
-        ]
-        expected = {0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:3,
-                    7:3, 8:0, 9:0, 10:7, 11:0, 12:4}
-        self.do_test_lt(nverts, edges, expected)
-
-    # Cooper, Harvey, and Kennedy's examples
-    def test_chk1(self):
-        nverts = 5
-        edges = [(0,1),(0,2),(1,3),(2,4),(3,4),(4,3)]
-        expected = {0:0, 1:0, 2:0, 3:0, 4:0}
-        self.do_test_lt(nverts, edges, expected)
-
-    def test_chk2(self):
-        nverts = 6
-        edges = [(0,1),(0,2),(1,5),(2,4),(2,3),(5,4),(4,5),(4,3),(3,4)]
-        expected = {0:0, 1:0, 2:0, 3:0, 4:0, 5:0}
-        self.do_test_lt(nverts, edges, expected)
-
-    # Georgiadis, Tarjan, and Werneck's examples
-    @staticmethod
-    def linearvit(k):
-        nverts = 3 + k
-        edges = [(0,1),(0,2),(1,3),(2,(3+k-1))]
-        for i in range(k - 1):
-            edges.append(((3+i),(3+i+1)))
-            edges.append(((3+i+1),(3+i)))
-        expected = {i:0 for i in range(nverts)}
-        return nverts, edges, expected
-
-    @staticmethod
-    def itworst(k):
-        # w_i = 4*i + 1
-        # x_i = 4*i + 2
-        # y_i = 4*i + 3
-        # z_i = 4*i + 4
-        nverts = 1 + 4*k
-        #         r,w0  r,x0  r,zn-1  xn-1,y0   yn-1,z0
-        edges = [(0,1),(0,2),(0,4*k),(4*k-2,3),(4*k-1,4)]
-        for i in range(k-1):
-            edges.append(( (4*i+1) , (4*(i+1)+1) ))
-            edges.append(( (4*i+2) , (4*(i+1)+2) ))
-            edges.append(( (4*i+3) , (4*(i+1)+3) ))
-            edges.append(( (4*i+4) , (4*(i+1)+4) ))
-            edges.append(( (4*(i+1)+4) , (4*i+4) ))
-        for i in range(k):
-            for j in range(k):
-                edges.append(( (4*i+3) , (4*j+1) ))
-        expected = {i:0 for i in range(nverts)}
-        for i in range(k-1):
-            # xi+1: xi
-            expected[4*(i+1)+2] = 4*i+2
-            # yi+1: yi
-            expected[4*(i+1)+3] = 4*i+3
-        # y0: xn-1
-        expected[3] = 4*k-2
-        return nverts, edges, expected
-
-    def test_linearvit(self):
-        for i in range(2, 30):
-            nverts, edges, expected = self.linearvit(i)
-            self.do_test_lt(nverts, edges, expected)
-
-    def test_itworst(self):
-        for i in range(2, 30):
-            nverts, edges, expected = self.itworst(i)
-            self.do_test_lt(nverts, edges, expected)
-
-if __name__ == '__main__':
-    nverts, edges, expected = TestLengauerTarjan.itworst(10)
-    graph = TestLengauerTarjan.TestGraph(list(range(nverts)), edges)
-    lt = LengauerTarjan(graph)
-    lt.semidominators()
-    idom = lt.idominators()
-    idom = {k.index: v.index for k, v in idom.items()}
-    with open('dominator.dot', 'w') as f:
-        debug_dominator_tree(graph, idom, f)
