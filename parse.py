@@ -159,7 +159,7 @@ class Parser:
             self.expect(')')
             return e
         if n := self.accept('number'):
-            return ast.NumberExpr(n)
+            return ast.NumberExpr(int(n))
         i = self.ident()
         return ast.IdentExpr(i)
 

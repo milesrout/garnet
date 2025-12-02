@@ -2,12 +2,7 @@ import enum
 import itertools
 import unittest
 
-class ContinuationType(enum.Enum):
-    JUMP = enum.auto()
-    BRANCH = enum.auto()
-    RETURN = enum.auto()
-
-class ContinuationEdge:
+class ContEdge:
     def __init__(self, target):
         self.target = target
         self.args = {}
@@ -18,52 +13,90 @@ class ContinuationEdge:
         self.args[param] = avalue
 
     def get_args(self):
-        return set(self.args.values())
+        return frozenset(self.args.values())
 
-class Continuation:
-    def __init__(self, type, args):
-        self.type = type
-        self.args = args
+    def debug(self, names=None, end='\n', file=None):
+        if self.args:
+            args = (a.label + '=' + v.name(names) for a, v in self.args.items())
+            print(self.target.name + '(' + ', '.join(args) + ')', end=end, file=file)
+        else:
+            print(self.target.name, end=end, file=file)
 
+class Cont:
     @staticmethod
     def ret():
-        return Continuation(ContinuationType.RETURN, ())
+        return ReturnCont()
 
     @staticmethod
     def jump(block):
-        eblock = ContinuationEdge(block)
-        return Continuation(ContinuationType.JUMP, (eblock,))
+        eblock = ContEdge(block)
+        return JumpCont(eblock)
 
     @staticmethod
     def branch(value, then, alt):
-        ethen = ContinuationEdge(then)
-        ealt = ContinuationEdge(alt)
-        return Continuation(ContinuationType.BRANCH, (value, ethen, ealt))
+        ethen = ContEdge(then)
+        ealt = ContEdge(alt)
+        return BranchCont(value, ethen, ealt)
+
+    @property
+    def uses(self):
+        return frozenset()
+
+    @property
+    def targets(self):
+        return [edge.target for edge in self.edges]
+
+    @property
+    def args(self):
+        return frozenset().union(*(edge.get_args() for edge in self.edges))
 
     def add_arg(self, param, pvalue, avalue):
-        for arg in self.args:
-            if isinstance(arg, ContinuationEdge):
-                arg.add_arg(param, pvalue, avalue)
+        for edge in self.edges:
+            if isinstance(edge, ContEdge):
+                edge.add_arg(param, pvalue, avalue)
 
-    def get_args(self):
-        return set().union(*(arg.get_args()
-                           for arg in self.args
-                           if isinstance(arg, ContinuationEdge)))
+class ReturnCont(Cont):
+    @property
+    def edges(self):
+        return []
 
     def debug(self, names=None, end='\n', file=None):
-        parts = [str(self.type.name)]
-        for arg in self.args:
-            if isinstance(arg, ContinuationEdge):
-                if arg.args:
-                    params = (a.name + '=' + v.name(names) for a, v in arg.args.items())
-                    parts.append(arg.target.name + '(' + ', '.join(params) + ')')
-                else:
-                    parts.append(arg.target.name)
-            elif isinstance(arg, Value) and names is not None:
-                parts.append(arg.name(names))
-            else:
-                parts.append(str(arg))
-        print('\t' + ' '.join(parts), end=end, file=file)
+        print('\tRETURN', end=end, file=file)
+
+class JumpCont(Cont):
+    def __init__(self, target):
+        self.target = target
+
+    @property
+    def edges(self):
+        return [self.target]
+
+    def debug(self, names=None, end='\n', file=None):
+        print('\tJUMP', end=' ', file=file)
+        self.target.debug(names=names, end=end, file=file)
+
+class BranchCont(Cont):
+    def __init__(self, value, ttrue, tfals):
+        self.value = value
+        self.ttrue = ttrue
+        self.tfals = tfals
+
+    @property
+    def edges(self):
+        return [self.ttrue, self.tfals]
+
+    @property
+    def uses(self):
+        return frozenset({self.value})
+
+    def debug(self, names=None, end='\n', file=None):
+        print('\tBRANCH ' + self.value.name(names), end=' ', file=file)
+        self.ttrue.debug(names=names, end=' ', file=file)
+        self.tfals.debug(names=names, end=end, file=file)
+
+class Type(enum.Enum):
+    VOID = enum.auto()
+    INT = enum.auto()
 
 class Opcode(enum.Enum):
     NOP = enum.auto()
@@ -87,14 +120,36 @@ class Opcode(enum.Enum):
     SNE = enum.auto()
     NEG = enum.auto()
 
-class Type(enum.Enum):
-    VOID = enum.auto()
-    INT = enum.auto()
+class InstMeta(type):
+    def __instancecheck__(cls, inst):
+        return (type.__instancecheck__(cls, inst) or
+                (isinstance(inst, Inst) and inst.opcode.name.lower() == cls.__name__.lower()))
+
+for op in Opcode:
+    globals()[op.name.title()] = InstMeta(op.name.title(), (),
+                                          {'__match_args__': ('arg0', 'arg1')})
+
+class Const(metaclass=InstMeta):
+    __match_args__ = ("const",)
 
 class Inst:
+    __match_args__ = ("opcode", "args")
+
     def __init__(self, opcode, args):
         self.opcode = opcode
         self.args = args
+
+    @property
+    def arg0(self):
+        return self.args[0]
+
+    @property
+    def arg1(self):
+        return self.args[1]
+
+    @property
+    def output(self):
+        return self.opcode not in {Opcode.NOP, Opcode.PRINT, Opcode.CALL, Opcode.STORE}
 
     def __str__(self):
         parts = [str(self.opcode.name)]
@@ -102,25 +157,29 @@ class Inst:
             parts.append(str(arg))
         return ' '.join(parts)
 
+    def name(self, names):
+        return names[self]
+
     def debug(self, names, end='\n', file=None):
         parts = [str(self.opcode.name)]
         for arg in self.args:
-            if isinstance(arg, Value):
-                parts.append(arg.name(names))
+            if isinstance(arg, Inst):
+                parts.append(names[arg])
+            elif isinstance(arg, Param):
+                parts.append(arg.label)
             elif isinstance(arg, Block):
                 parts.append(arg.name)
             else:
                 raise RuntimeError
-        name = names[self]
-        print(f'\t{name} = ' + ' '.join(parts), end=end, file=file)
+        if self.output:
+            name = names[self]
+            print(f'\t{name} = ' + ' '.join(parts), end=end, file=file)
+        else:
+            print(f'\t' + ' '.join(parts), end=end, file=file)
 
     @staticmethod
     def const(const):
         return ConstInst(const)
-
-    @staticmethod
-    def param(param):
-        return ParamInst(param)
 
     @staticmethod
     def store(variable, value):
@@ -166,47 +225,6 @@ class Inst:
     def mul(lhs, rhs):
         return Inst(Opcode.MUL, (lhs, rhs))
 
-class Value:
-    pass
-
-class InstValue(Value):
-    def __init__(self, block, index):
-        self.block = block
-        self.index = index
-
-    def name(self, names):
-        return names[self.block, self.index]
-
-    def __str__(self):
-        return f'{{{self.block.name}:{self.index}}}'
-
-    def __eq__(self, other):
-        return (type(self) == type(other) and
-                self.block == other.block and
-                self.index == other.index)
-
-    def __hash__(self):
-        return hash((InstValue, self.block, self.index))
-
-class ParamValue(Value):
-    def __init__(self, block, param):
-        self.block = block
-        self.param = param
-
-    def name(self, names):
-        return self.param.name
-
-    def __str__(self):
-        return f'{{{self.block.name}:{self.param.name}}}'
-
-    def __eq__(self, other):
-        return (type(self) == type(other) and
-                self.block == other.block and
-                self.param == other.param)
-
-    def __hash__(self):
-        return hash((ParamValue, self.block, self.param))
-
 class ConstInst(Inst):
     def __init__(self, const):
         super().__init__(Opcode.CONST, ())
@@ -219,22 +237,14 @@ class ConstInst(Inst):
         super().debug(names, end=' ', file=file)
         print(str(self.const), end=end, file=file)
 
-class ParamInst(Inst):
-    def __init__(self, param):
-        super().__init__(Opcode.PARAM, ())
-        self.param = param
-
-    def __str__(self):
-        return super().__str__() + ' ~' + str(self.param)
-
-    def debug(self, names, end='\n', file=None):
-        super().debug(names, end=' ', file=file)
-        print('~' + self.param.name, end=end, file=file)
-
 class StoreInst(Inst):
     def __init__(self, variable, value):
         super().__init__(Opcode.STORE, (value,))
         self.variable = variable
+
+    @property
+    def output(self):
+        return False
 
     def __str__(self):
         return super().__str__() + ' %' + str(self.variable)
@@ -260,6 +270,10 @@ class CallInst(Inst):
         super().__init__(Opcode.CALL, ())
         self.procedure = procedure
 
+    @property
+    def output(self):
+        return False
+
     def __str__(self):
         return super().__str__() + ' @' + str(self.procedure)
 
@@ -268,8 +282,17 @@ class CallInst(Inst):
         print('@' + str(self.procedure), end=end, file=file)
 
 class Param:
-    def __init__(self, name):
-        self.name = name
+    def __init__(self, label):
+        self.label = label
+
+    def name(self, names):
+        return self.label
+
+    def __str__(self):
+        return self.label
+
+    def __repr__(self):
+        return f'Param({self.label})'
 
 class Block:
     anon_names = (f'b{i}' for i in itertools.count(1))
@@ -281,37 +304,38 @@ class Block:
         self.name = name
         self.cont = None
         self.preds = set()
-        self.params = set()
+        self.params = []
 
     def emit(self, inst):
         self.insts.append(inst)
-        return InstValue(self, len(self.insts) - 1)
+        return inst
 
     def ret(self):
-        assert self.cont is None or self.cont.type is ContinuationType.RETURN
-        self.cont = Continuation.ret()
+        assert self.cont is None
+        self.cont = Cont.ret()
 
     def jump(self, target):
         assert self.cont is None
-        self.cont = Continuation.jump(target)
+        self.cont = Cont.jump(target)
         target.preds.add(self)
 
     def branch(self, value, then, alt):
         assert self.cont is None
-        self.cont = Continuation.branch(value, then, alt)
+        self.cont = Cont.branch(value, then, alt)
         then.preds.add(self)
         alt.preds.add(self)
 
-    def param(self, variable):
+    def param(self):
         param = Param(next(self.anon_params))
-        self.params.add(param)
-        return param, ParamValue(self, param)
+        self.params.append(param)
+        param.block = self
+        return param, param#ParamValue(self, param)
 
     def add_arg(self, param, pvalue, avalue):
         self.cont.add_arg(param, pvalue, avalue)
 
     def debug(self, end='\n', file=None):
-        params = ', '.join(param.name for param in self.params)
+        params = ', '.join(param.label for param in self.params)
         print(f'{self.name}({params}):', end=end, file=file)
         for i, inst in enumerate(self.insts):
             print(f'\t{i}:  {inst}', end=end, file=file)
@@ -333,7 +357,7 @@ class Procedure:
                 if inst not in names:
                     names[inst] = names[block, i] = 'v' + str(next(counter))
         for block in self.blocks:
-            params = ', '.join(param.name for param in block.params)
+            params = ', '.join(param.label for param in block.params)
             if params:
                 print(f'{block.name}({params}):', end=end, file=file)
             else:

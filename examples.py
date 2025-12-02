@@ -194,3 +194,20 @@ while 1 == 1 do
     call foo
   end .
 '''
+
+prog6 = '''
+var a , b , x , y , z ;
+begin
+  ? x ; ? y ;
+  a := x ;
+  b := y ;
+  z := 0 ;
+  while b > 0 do
+  begin
+    if odd b then z := z + a ;
+    a := 2 * a ;
+    b := b / 2
+  end ;
+  ! z
+end .
+'''

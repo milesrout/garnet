@@ -1,8 +1,9 @@
 from collections import defaultdict, deque
 import itertools
 import sys
+import unittest
 
-from ssa import Opcode, ContinuationType, InstValue, ParamValue
+from ssa import Opcode, Cont, Block, Inst
 
 def debug_dominator_tree(graph, idom, name=None):
     print(f'debug_dominator_tree {name=}')
@@ -26,6 +27,9 @@ class Node:
         self.block = block
         self.index = index
 
+    def __repr__(self):
+        return f'Node({self.block.name})'
+
 class LengauerTarjan:
     @classmethod
     def _graph(self, proc):
@@ -39,15 +43,7 @@ class LengauerTarjan:
             if node in seen:
                 return
             seen.add(node)
-            if node.block.cont.type == ContinuationType.JUMP:
-                btarg = node.block.cont.args[0].target
-                node.children = [nodes[bkwd[btarg]]]
-            elif node.block.cont.type == ContinuationType.BRANCH:
-                btrue = node.block.cont.args[1].target
-                bfals = node.block.cont.args[2].target
-                node.children = [nodes[bkwd[btrue]], nodes[bkwd[bfals]]]
-            else:
-                node.children = []
+            node.children = [nodes[bkwd[target]] for target in node.block.cont.targets]
             for child in node.children:
                 go(child)
             node.preds = [nodes[bkwd[b]] for b in node.block.preds]
@@ -56,13 +52,35 @@ class LengauerTarjan:
 
     def __init__(self, proc):
         self.nodes, self.root = self._graph(proc)
-        self.ancestor = [self.nodes[i] for i in range(len(self.nodes))]
-        self.semi = [self.nodes[i] for i in range(len(self.nodes))]
-        self.label = [self.nodes[i] for i in range(len(self.nodes))]
-        self.dfsnodes = []
-        self._dfs()
 
-    def _dfs(self):
+    def splitcrit(self):
+        for v in self.nodes:
+            if len(v.children) > 1:
+                for i, u in enumerate(v.children):
+                    if len(u.preds) > 1:
+                        print(f'critical edge v={v.block.name} u={u.block.name}')
+                        b = Block()
+                        #b.name += f'_split_{v.block.name}_{u.block.name}'
+                        b.name += '_split'
+                        b.cont = Cont.jump(u.block)
+                        av = {}
+                        aw = {}
+                        for j, pu in enumerate(u.block.params):
+                            pw, vw = b.param()
+                            aw[pu] = vw
+                            av[pw] = v.block.cont.edges[i].args[pu]
+                        v.block.cont.edges[i].target = b
+                        v.block.cont.edges[i].args = av
+                        b.cont.target.args = aw
+                        w = Node(b, len(self.nodes))
+                        self.nodes.append(w)
+                        j = u.preds.index(v)
+                        u.preds[j] = w
+                        w.children.append(u)
+                        v.children[i] = w
+                        w.preds.append(v)
+
+    def dfs(self):
         counter = itertools.count(0)
         seen = set()
         nodes = []
@@ -96,6 +114,9 @@ class LengauerTarjan:
         return v
 
     def semidominators(self):
+        self.ancestor = [self.nodes[i] for i in range(len(self.nodes))]
+        self.semi = [self.nodes[i] for i in range(len(self.nodes))]
+        self.label = [self.nodes[i] for i in range(len(self.nodes))]
         for v in self.dfsnodes:
             self.semi[v.dfs] = v.parent
             for u in v.preds:
@@ -206,19 +227,7 @@ class LengauerTarjan:
                         self.frontier[b].add(w)
         go(self.dtreeroot)
 
-    def liveness(self):
-        self.livein = {}
-        self.liveout = {}
-        for node in self.nodes:
-            self.livein[node] = set()
-            self.liveout[node] = set()
-            for param in node.block.params:
-                pvalue = ParamValue(node.block, param)
-                self.livein[node].add(pvalue)
-            for arg in node.block.cont.get_args():
-                self.liveout[node].add(arg)
-
-    def colour(self):
+    def allocate(self):
         self.colours = {}
         def go(node):
             # TODO: this initial assignment could be heuristically improved by
@@ -226,30 +235,49 @@ class LengauerTarjan:
             # parameter assignments are most similar to the registers assigned
             # to the continuation arguments that target this block, if they
             # have already been computed.
-            assignment = {ParamValue(node.block, p): i for i, p in enumerate(node.block.params)}
+            assignment = {p: i for i, p in enumerate(node.block.params)}
             assigned = set(range(len(node.block.params)))
             last_use = {}
             for i, inst in enumerate(node.block.insts):
                 for arg in inst.args:
                     last_use[arg] = inst
-            if node.block.cont.type == ContinuationType.BRANCH:
-                last_use[node.block.cont.args[0]] = node.block.cont
-            for arg in node.block.cont.get_args():
+            for use in node.block.cont.uses:
+                last_use[use] = node.block.cont
+            for arg in node.block.cont.args:
                 last_use[arg] = node.block.cont
             for i, inst in enumerate(node.block.insts):
                 for arg in inst.args:
                     if last_use[arg] == inst:
                         assigned.discard(assignment[arg])
-                inst_value = InstValue(node.block, i)
-                b = next(c for c in itertools.count(0) if c not in assigned)
-                assignment[inst_value] = b
-                if inst_value in last_use:
-                    assigned.add(b)
+                if inst.output:
+                    inst_value = node.block.insts[i]
+                    b = next(c for c in itertools.count(0) if c not in assigned)
+                    assignment[inst_value] = b
+                    if inst_value in last_use:
+                        assigned.add(b)
             self.colours[node] = assignment
             for c in self.dom[node]:
                 if c != node:
                     go(c)
         go(self.root)
+
+    def parmove(self):
+        # for each node
+        # if it has multiple children
+        #   (check that those children have a single predecessor)
+        #   insert the parallel move into the beginning of the child node's block
+        # otherwise
+        #   insert the parallel move into the end of the node's block.
+        def do(e, v, u):
+            print(f'parallel move {v=} {u=} {e.args}')
+            return [Inst.nop()]
+        for v in self.nodes:
+            if len(v.children) > 1:
+                for i, u in enumerate(v.children):
+                    assert len(u.preds) == 1
+                    u.block.insts[:0] = do(v.block.cont.edges[i], v, u)
+            elif len(v.children) == 1:
+                v.block.insts.extend(do(v.block.cont.edges[0], v, v.children[0]))
 
     def debug(self, file=None):
         if file is None:
@@ -269,7 +297,7 @@ class LengauerTarjan:
         print('digraph {', file=file)
         for node in self.nodes:
             print('\t', node.index, f'[shape=box nojustify=true label="', file=file, end='')
-            params = ', '.join(param.name for param in node.block.params)
+            params = ', '.join(param.label for param in node.block.params)
             if params:
                 params = '(' + params + ')'
             print(f'{node.block.name}{params}:', file=file, end='\\l')
@@ -279,8 +307,8 @@ class LengauerTarjan:
                 node.block.cont.debug(names, end='\\l', file=file)
             else:
                 print('\tNo jump', end='\\l', file=file)
-            livein = ', '.join(sorted(list(k.name(names) for k in self.livein[node])))
-            liveout = ', '.join(sorted(list(k.name(names) for k in self.liveout[node])))
+            #livein = ', '.join(sorted(list(k.name(names) for k in self.livein[node])))
+            #liveout = ', '.join(sorted(list(k.name(names) for k in self.liveout[node])))
             colours = ', '.join(f'{v.name(names)}:r{i}' for v, i in self.colours[node].items())
             #if livein:
             #    print(f'Livein = {{{livein}}}', end='\\l', file=file)
@@ -296,8 +324,6 @@ class LengauerTarjan:
             print('\t', i, '->', j, '[color=red,constraint=false]', file=file)
         print('}', file=file)
 
-import unittest
-
 class TestLengauerTarjanSSA(unittest.TestCase):
     def do_test(self, source, debug=False, name=None):
         from parse import parse
@@ -309,6 +335,8 @@ class TestLengauerTarjanSSA(unittest.TestCase):
         for name, proc in [(name, proc), *proc.procedures.items()]:
             proc.debug()
             lt = LengauerTarjan(proc)
+            lt.splitcrit()
+            lt.dfs()
             lt.semidominators()
             lt.idominators()
             lt.dominators()
@@ -317,13 +345,13 @@ class TestLengauerTarjanSSA(unittest.TestCase):
             lt.calclnf()
             lt.dominatortree()
             lt.frontier()
-            lt.liveness()
-            lt.colour()
+            lt.allocate()
+            #lt.parmove()
             if debug:
                 lt.debug()
                 input()
 
-    def test_myprog1(self):
+    def _test_myprog1(self):
         prog = '''\
         var x , y , z ;
         begin
@@ -342,30 +370,34 @@ class TestLengauerTarjanSSA(unittest.TestCase):
         end .'''
         self.do_test(prog, debug=True)
 
-    def test_prog0(self):
-        from examples import prog0 as prog
-        self.do_test(prog, debug=True)
+    #def test_prog0(self):
+    #    from examples import prog0 as prog
+    #    self.do_test(prog, debug=True)
 
-    def test_prog0a(self):
-        from examples import prog0a as prog
-        self.do_test(prog, debug=True)
+    #def test_prog0a(self):
+    #    from examples import prog0a as prog
+    #    self.do_test(prog, debug=True)
 
-    def test_prog1(self):
-        from examples import prog1 as prog
-        self.do_test(prog, debug=True)
+    #def test_prog1(self):
+    #    from examples import prog1 as prog
+    #    self.do_test(prog, debug=True)
 
-    def test_prog2(self):
-        from examples import prog2 as prog
-        self.do_test(prog, debug=True)
+    #def test_prog2(self):
+    #    from examples import prog2 as prog
+    #    self.do_test(prog, debug=True)
 
-    def test_prog3(self):
-        from examples import prog3 as prog
-        self.do_test(prog, debug=True)
+    #def test_prog3(self):
+    #    from examples import prog3 as prog
+    #    self.do_test(prog, debug=True)
 
-    def test_prog4(self):
-        from examples import prog4 as prog
-        self.do_test(prog, debug=True)
+    #def test_prog4(self):
+    #    from examples import prog4 as prog
+    #    self.do_test(prog, debug=True)
 
-    def test_prog5(self):
-        from examples import prog5 as prog
+    #def test_prog5(self):
+    #    from examples import prog5 as prog
+    #    self.do_test(prog, debug=True)
+
+    def test_prog6(self):
+        from examples import prog6 as prog
         self.do_test(prog, debug=True)

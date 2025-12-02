@@ -33,17 +33,17 @@ class SsaConverter(ast.Visitor):
 
     def read_variable_recursive(self, variable, block):
         if block not in self.sealed_blocks:
-            param, value = block.param(variable)
+            param, value = block.param()
             self.incomplete_params[block][variable] = (param, value)
         elif len(block.preds) == 1:
-            param, pvalue = block.param(variable)
+            param, pvalue = block.param()
             pred = next(iter(block.preds))
             avalue = self.read_variable(variable, pred)
             self.add_block_args(variable, param, pvalue)
             self.set_variable(variable, block, pvalue)
             return pvalue
         else:
-            param, value = block.param(variable)
+            param, value = block.param()
             self.set_variable(variable, block, value)
             self.add_block_args(variable, param, value)
         self.write_variable(variable, block, value)
