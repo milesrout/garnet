@@ -6,6 +6,16 @@ from riscv64 import Opcode
 class Value:
     pass
 
+class Reg(Value):
+    def __init__(self, i):
+        self.i = i
+
+    def __str__(self):
+        return 'r' + str(self.i)
+
+    def debug(self, names, end='\n', file=None):
+        print(self, end=end, file=file)
+
 class Zero(Value):
     def __str__(self):
         return 'x0'
@@ -14,6 +24,7 @@ class Zero(Value):
         print(self, end=end, file=file)
 
 class Imm(Value):
+    assignable = False
     __match_args__ = ('imm',)
     def __init__(self, imm, display=None):
         self.imm = imm
@@ -38,6 +49,7 @@ class Imm(Value):
         return hash((Imm, self.imm))
 
 class Sym(Value):
+    assignable = False
     __match_args__ = ('sym',)
     def __init__(self, sym):
         self.sym = sym
@@ -63,6 +75,7 @@ class PseudoOpcode(enum.Enum):
     CALL = enum.auto()
 
 class Inst:
+    assignable = True
     def __init__(self, opcode, args):
         self.opcode = opcode
         self.args = args
@@ -70,7 +83,7 @@ class Inst:
     @property
     def output(self):
         return self.opcode not in {Opcode.NOP, Opcode.SD, Opcode.SW, Opcode.SH,
-                                   Opcode.SB, PseudoOpcode.CALL}
+                                   Opcode.SB, Opcode.MV, PseudoOpcode.CALL}
 
     def __str__(self):
         args = ', '.join(map(str, self.args))
@@ -93,6 +106,8 @@ class Inst:
                 parts.append(str(arg))
             elif isinstance(arg, Sym):
                 parts.append(str(arg.sym))
+            elif isinstance(arg, Reg):
+                parts.append(str(arg))
             else:
                 raise RuntimeError(f'Invalid arg {type(arg)}')
         if self.output:

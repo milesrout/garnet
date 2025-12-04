@@ -340,6 +340,8 @@ class CallInst(Inst):
         print('@' + str(self.procedure), end=end, file=file)
 
 class Param:
+    assignable = False
+
     def __init__(self, label):
         self.label = label
 

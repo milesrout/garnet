@@ -26,6 +26,19 @@ def cmp_z(cmp):
     return CMP[cmp][2]
 
 class InsSel:
+    def __init__(self):
+        self.blockmap = {}
+
+    def fixblocks(self, proc):
+        for block in proc.blocks:
+            block.preds = {self.blockmap[p] for p in block.preds}
+            match block.cont:
+                case r.JumpCont(target=target):
+                    target.target = self.blockmap[target.target]
+                case r.BranchCont(ttrue=ttrue, tfals=tfals):
+                    ttrue.target = self.blockmap[ttrue.target]
+                    tfals.target = self.blockmap[tfals.target]
+
     def do_munch_expr(self, inst):
         if isinstance(inst, s.Param):
             return inst
@@ -183,6 +196,7 @@ class InsSel:
                 self.outputs.append(self.output)
 
         newblock = s.Block(block.name)
+        self.blockmap[block] = newblock
         match block.cont:
             case s.ReturnCont():
                 newblock.cont = r.ReturnCont()
@@ -196,8 +210,9 @@ class InsSel:
                 newblock.cont = r.Cont.branch(value, ttrue.target, tfals.target)
                 newblock.cont.ttrue.args = {p: args[a] for p, a in ttrue.args.items()}
                 newblock.cont.tfals.args = {p: args[a] for p, a in tfals.args.items()}
-        newblock.insts = [a for b in list(reversed(self.outputs)) for a in b]
+        newblock.insts = [a for b in reversed(self.outputs) for a in b]
         newblock.params = block.params[:]
+        newblock.preds = set(block.preds)
         return newblock
 
 class TestInsSel(unittest.TestCase):
@@ -250,10 +265,12 @@ def inssel(proc):
         procs.append(inssel(subproc))
 
     sel = InsSel()
+    sel.blockmap = {}
     blocks = []
     for block in proc.blocks:
         newblock = sel.munch_block(block)
         blocks.append(newblock)
 
     newproc = s.Procedure(proc.name, blocks, procs)
+    sel.fixblocks(newproc)
     return newproc

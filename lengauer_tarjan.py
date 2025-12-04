@@ -1,9 +1,41 @@
+import enum
 from collections import defaultdict, deque
 import itertools
 import sys
 import unittest
 
 from ssa import Opcode, Cont, Block, Inst
+import ssa_riscv64 as r
+
+class ParMove(enum.Enum):
+    NOTMOVED = enum.auto()
+    MOVING = enum.auto()
+    MOVED = enum.auto()
+
+def parallelmoves(moves, tmp):
+    SRC = 0
+    DST = 1
+    state = [ParMove.NOTMOVED for _ in range(len(moves))]
+    results = []
+    def pmov1(i):
+        if moves[i][SRC] != moves[i][DST]:
+            state[i] = ParMove.MOVING
+            for j in range(len(moves)):
+                if moves[j][SRC] == moves[i][DST]:
+                    match state[j]:
+                      case ParMove.NOTMOVED:
+                        pmov1(j)
+                      case ParMove.MOVING:
+                        results.append((moves[j][SRC], tmp))
+                        moves[j] = (tmp, moves[j][1])
+                      case ParMove.MOVED:
+                        pass
+            results.append((moves[i][SRC], moves[i][DST]))
+            state[i] = ParMove.MOVED
+    for i in range(len(moves)):
+        if state[i] == ParMove.NOTMOVED:
+            pmov1(i)
+    return results
 
 def debug_dominator_tree(graph, idom, name=None):
     print(f'debug_dominator_tree {name=}')
@@ -66,8 +98,8 @@ class LengauerTarjan:
                         av = {}
                         aw = {}
                         for j, pu in enumerate(u.block.params):
-                            pw, vw = b.param()
-                            aw[pu] = vw
+                            pw = b.param()
+                            aw[pu] = pw
                             av[pw] = v.block.cont.edges[i].args[pu]
                         v.block.cont.edges[i].target = b
                         v.block.cont.edges[i].args = av
@@ -240,15 +272,17 @@ class LengauerTarjan:
             last_use = {}
             for i, inst in enumerate(node.block.insts):
                 for arg in inst.args:
-                    last_use[arg] = inst
+                    if arg.assignable:
+                        last_use[arg] = inst
             for use in node.block.cont.uses:
                 last_use[use] = node.block.cont
             for arg in node.block.cont.args:
                 last_use[arg] = node.block.cont
             for i, inst in enumerate(node.block.insts):
                 for arg in inst.args:
-                    if last_use[arg] == inst:
-                        assigned.discard(assignment[arg])
+                    if arg.assignable:
+                        if last_use[arg] == inst:
+                            assigned.discard(assignment[arg])
                 if inst.output:
                     inst_value = node.block.insts[i]
                     b = next(c for c in itertools.count(0) if c not in assigned)
@@ -269,8 +303,21 @@ class LengauerTarjan:
         # otherwise
         #   insert the parallel move into the end of the node's block.
         def do(e, v, u):
-            print(f'parallel move {v=} {u=} {e.args}')
-            return [Inst.nop()]
+            if not len(e.args):
+                return []
+            tmp = 0
+            movs = []
+            for ru, rv in e.args.items():
+                cu = self.colours[u][ru]
+                cv = self.colours[v][rv]
+                tmp = max([tmp, cu, cv])
+                if cu != cv:
+                    movs.append((cv, cu))
+            if not len(movs):
+                return []
+            tmp += 1
+            movs = parallelmoves(movs, tmp)
+            return [r.Inst.binary(r.Opcode.MV, r.Reg(dst), r.Reg(src)) for (src,dst) in movs]
         for v in self.nodes:
             if len(v.children) > 1:
                 for i, u in enumerate(v.children):
@@ -307,13 +354,11 @@ class LengauerTarjan:
                 node.block.cont.debug(names, end='\\l', file=file)
             else:
                 print('\tNo jump', end='\\l', file=file)
-            #livein = ', '.join(sorted(list(k.name(names) for k in self.livein[node])))
-            #liveout = ', '.join(sorted(list(k.name(names) for k in self.liveout[node])))
-            colours = ', '.join(f'{v.name(names)}:r{i}' for v, i in self.colours[node].items())
-            #if livein:
-            #    print(f'Livein = {{{livein}}}', end='\\l', file=file)
-            #if liveout:
-            #    print(f'Liveout = {{{liveout}}}', end='\\l', file=file)
+            def getname(value):
+                if hasattr(value, 'label'):
+                    return value.label
+                return names[value]
+            colours = ', '.join(f'{getname(v)}:r{i}' for v, i in self.colours[node].items())
             if colours:
                 print(f'Colours = {{{colours}}}', end='\\l', file=file)
             print('" xlabel="', file=file, end='')
@@ -332,8 +377,10 @@ class TestLengauerTarjanSSA(unittest.TestCase):
         const, escaped, free = checkvars(prog)
         from convertssa import convertssa
         proc = convertssa(prog, const, escaped, free)
-        for name, proc in [(name, proc), *proc.procedures.items()]:
-            proc.debug()
+        from inssel_riscv64 import inssel
+        proc = inssel(proc)
+        proc.debug()
+        for proc in [proc, *proc.procedures]:
             lt = LengauerTarjan(proc)
             lt.splitcrit()
             lt.dfs()
@@ -346,7 +393,7 @@ class TestLengauerTarjanSSA(unittest.TestCase):
             lt.dominatortree()
             lt.frontier()
             lt.allocate()
-            #lt.parmove()
+            lt.parmove()
             if debug:
                 lt.debug()
                 input()
