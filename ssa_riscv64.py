@@ -1,18 +1,31 @@
 import enum
 import ssa
-from ssa import ContEdge, Block
+from ssa import ContEdge, Block, Procedure
 from riscv64 import Opcode
 
 class Value:
     pass
 
+class Zero(Value):
+    def __str__(self):
+        return 'x0'
+
+    def debug(self, names, end='\n', file=None):
+        print(self, end=end, file=file)
+
 class Imm(Value):
     __match_args__ = ('imm',)
-    def __init__(self, imm):
+    def __init__(self, imm, display=None):
         self.imm = imm
+        if display is None:
+            display = str
+        self.display = display
 
     def name(self, names):
-        return self.imm
+        return str(self)
+
+    def __str__(self):
+        return self.display(self.imm)
 
     def __repr__(self):
         return f'Imm({self.imm})'
@@ -23,6 +36,24 @@ class Imm(Value):
 
     def __hash__(self):
         return hash((Imm, self.imm))
+
+class Sym(Value):
+    __match_args__ = ('sym',)
+    def __init__(self, sym):
+        self.sym = sym
+
+    def name(self, names):
+        return self.sym
+
+    def __repr__(self):
+        return f'Sym({self.sym})'
+
+    def __eq__(self, other):
+        return (type(self) == type(other) and
+                self.sym == other.sym)
+
+    def __hash__(self):
+        return hash((Sym, self.sym))
 
 class PseudoOpcode(enum.Enum):
     # pseudo
@@ -50,7 +81,7 @@ class Inst:
         return f'Inst({self.opcode}, {self.args})'
 
     def debug(self, names, end='\n', file=None):
-        parts = [str(self.opcode.name)]
+        parts = []
         for arg in self.args:
             if isinstance(arg, Inst):
                 parts.append(names[arg])
@@ -59,14 +90,16 @@ class Inst:
             elif isinstance(arg, Block):
                 parts.append(arg.name)
             elif isinstance(arg, Imm):
-                parts.append(str(arg.imm))
+                parts.append(str(arg))
+            elif isinstance(arg, Sym):
+                parts.append(str(arg.sym))
             else:
                 raise RuntimeError(f'Invalid arg {type(arg)}')
         if self.output:
-            name = names[self]
-            print(f'\t{name} = ' + ' '.join(parts), end=end, file=file)
+            print(f'\t{names[self]} = ', end='', file=file)
         else:
-            print(f'\t' + ' '.join(parts), end=end, file=file)
+            print('\t', end='', file=file)
+        print(f'{self.opcode.name.upper()} ' + ','.join(parts), end=end, file=file)
 
     @staticmethod
     def const(const):
@@ -195,7 +228,10 @@ class BranchCont(Cont):
         return frozenset({self.value})
 
     def debug(self, names=None, end='\n', file=None):
-        print('\tBRANCH ' + self.value.name(names), end=' ', file=file)
+        if isinstance(self.value, ssa.Param):
+            print('\tBRANCH ' + self.value.label, end=' ', file=file)
+        else:
+            print('\tBRANCH ' + names[self.value], end=' ', file=file)
         self.ttrue.debug(names=names, end=' ', file=file)
         self.tfals.debug(names=names, end=end, file=file)
 

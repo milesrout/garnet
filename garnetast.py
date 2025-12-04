@@ -57,14 +57,6 @@ class CallStmt(Stmt):
     def __init__(self, ident):
         self.ident = ident
 
-class ReadStmt(Stmt):
-    def __init__(self, ident):
-        self.ident = ident
-
-class WriteStmt(Stmt):
-    def __init__(self, expr):
-        self.expr = expr
-
 class Statements(Stmt):
     def __init__(self, stmts):
         self.stmts = stmts
@@ -116,12 +108,6 @@ class Visitor(abc.ABC):
     def visit_CallStmt(self, stmt, *args, **kwds): ...
 
     @abstractmethod
-    def visit_ReadStmt(self, stmt, *args, **kwds): ...
-
-    @abstractmethod
-    def visit_WriteStmt(self, stmt, *args, **kwds): ...
-
-    @abstractmethod
     def visit_Statements(self, stmts, *args, **kwds): ...
 
     @abstractmethod
@@ -161,12 +147,6 @@ class ExprVisitor(Visitor):
     def visit_CallStmt(self, stmt, *args, **kwds):
         pass
 
-    def visit_ReadStmt(self, stmt, *args, **kwds):
-        pass
-
-    def visit_WriteStmt(self, stmt, *args, **kwds):
-        self.visit(stmt.expr, *args, **kwds)
-
     def visit_Statements(self, stmts, *args, **kwds):
         for stmt in stmts.stmts:
             self.visit(stmt, *args, **kwds)
@@ -197,12 +177,6 @@ class StmtVisitor(Visitor):
         pass
 
     def visit_CallStmt(self, stmt, *args, **kwds):
-        pass
-
-    def visit_ReadStmt(self, stmt, *args, **kwds):
-        pass
-
-    def visit_WriteStmt(self, stmt, *args, **kwds):
         pass
 
     def visit_Statements(self, stmts, *args, **kwds):

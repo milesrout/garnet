@@ -7,20 +7,35 @@ class ContEdge:
         self.target = target
         self.args = {}
 
-    def add_arg(self, param, pvalue, avalue):
-        if pvalue.block != self.target:
+    def add_arg(self, param, value):
+        if param.block != self.target:
             return
-        self.args[param] = avalue
+        self.args[param] = value
 
     def get_args(self):
         return frozenset(self.args.values())
 
     def debug(self, names=None, end='\n', file=None):
         if self.args:
-            args = (a.label + '=' + v.name(names) for a, v in self.args.items())
-            print(self.target.name + '(' + ', '.join(args) + ')', end=end, file=file)
+            print(self.target.name, end='(', file=file)
+            for a, v in self.args.items():
+                print(a.label, end='=', file=file)
+                if isinstance(v, Param):
+                    print(v.label, end=', ', file=file)
+                else:
+                    print(names[v], end=', ', file=file)
+            print(')', end=end, file=file)
         else:
             print(self.target.name, end=end, file=file)
+        #if self.args:
+        #    for a, v in self.args.items():
+        #        print(type(a), a)
+        #        print(type(v), v)
+        #        print(v.name(names))
+        #    args = (a.label + '=' + v.name(names) for a, v in self.args.items())
+        #    print(self.target.name + '(' + ', '.join(args) + ')', end=end, file=file)
+        #else:
+        #    print(self.target.name, end=end, file=file)
 
 class Cont:
     @staticmethod
@@ -50,10 +65,10 @@ class Cont:
     def args(self):
         return frozenset().union(*(edge.get_args() for edge in self.edges))
 
-    def add_arg(self, param, pvalue, avalue):
+    def add_arg(self, param, value):
         for edge in self.edges:
             if isinstance(edge, ContEdge):
-                edge.add_arg(param, pvalue, avalue)
+                edge.add_arg(param, value)
 
 class ReturnCont(Cont):
     @property
@@ -90,7 +105,10 @@ class BranchCont(Cont):
         return frozenset({self.value})
 
     def debug(self, names=None, end='\n', file=None):
-        print('\tBRANCH ' + self.value.name(names), end=' ', file=file)
+        if isinstance(self.value, Param):
+            print('\tBRANCH ' + self.value.label, end=' ', file=file)
+        else:
+            print('\tBRANCH ' + names[self.value], end=' ', file=file)
         self.ttrue.debug(names=names, end=' ', file=file)
         self.tfals.debug(names=names, end=end, file=file)
 
@@ -101,11 +119,8 @@ class Type(enum.Enum):
 class Opcode(enum.Enum):
     NOP = enum.auto()
     CONST = enum.auto()
-    PARAM = enum.auto()
     STORE = enum.auto()
     LOAD = enum.auto()
-    PRINT = enum.auto()
-    SCAN = enum.auto()
     CALL = enum.auto()
     ODD = enum.auto()
     ADD = enum.auto()
@@ -120,14 +135,47 @@ class Opcode(enum.Enum):
     SNE = enum.auto()
     NEG = enum.auto()
 
+OPCODE0 = [
+    Opcode.NOP,
+]
+OPCODE1 = [
+    Opcode.ODD,
+    Opcode.NEG,
+]
+OPCODE2 = [
+    Opcode.ADD,
+    Opcode.SUB,
+    Opcode.MUL,
+    Opcode.DIV,
+    Opcode.SLT,
+    Opcode.SGT,
+    Opcode.SLE,
+    Opcode.SGE,
+    Opcode.SEQ,
+    Opcode.SNE,
+]
+OPCODE_MATCH = {
+    Opcode.CONST: ('const',),
+    Opcode.STORE: ('arg0', 'variable'),
+    Opcode.LOAD: ('variable',),
+    Opcode.CALL: ('procedure',),
+}
+for op in OPCODE0:
+    OPCODE_MATCH[op] = ()
+for op in OPCODE1:
+    OPCODE_MATCH[op] = ('arg0',)
+for op in OPCODE2:
+    OPCODE_MATCH[op] = ('arg0', 'arg1')
+
 class InstMeta(type):
     def __instancecheck__(cls, inst):
         return (type.__instancecheck__(cls, inst) or
                 (isinstance(inst, Inst) and inst.opcode.name.lower() == cls.__name__.lower()))
 
-for op in Opcode:
-    globals()[op.name.title()] = InstMeta(op.name.title(), (),
-                                          {'__match_args__': ('arg0', 'arg1')})
+for op, match in OPCODE_MATCH.items():
+    globals()[op.name.title()] = InstMeta(
+        op.name.title(), (),
+        {'__match_args__': match})
 
 class Const(metaclass=InstMeta):
     __match_args__ = ("const",)
@@ -149,7 +197,7 @@ class Inst:
 
     @property
     def output(self):
-        return self.opcode not in {Opcode.NOP, Opcode.PRINT, Opcode.CALL, Opcode.STORE}
+        return self.opcode not in {Opcode.NOP, Opcode.CALL, Opcode.STORE}
 
     def __str__(self):
         parts = [str(self.opcode.name)]
@@ -159,6 +207,12 @@ class Inst:
 
     def name(self, names):
         return names[self]
+
+    def iseffectful(self):
+        return self.opcode in [
+            Opcode.STORE,
+            Opcode.CALL,
+        ]
 
     def debug(self, names, end='\n', file=None):
         parts = [str(self.opcode.name)]
@@ -198,14 +252,6 @@ class Inst:
         return Inst(Opcode.NOP, ())
 
     @staticmethod
-    def print(value):
-        return Inst(Opcode.PRINT, (value,))
-
-    @staticmethod
-    def scan():
-        return Inst(Opcode.SCAN, ())
-
-    @staticmethod
     def unary(op, value):
         return Inst(op, (value,))
 
@@ -233,6 +279,9 @@ class ConstInst(Inst):
     def __str__(self):
         return f'{self.opcode.name} {self.const}'
 
+    def iseffectful(self):
+        return False
+
     def debug(self, names, end='\n', file=None):
         super().debug(names, end=' ', file=file)
         print(str(self.const), end=end, file=file)
@@ -245,6 +294,9 @@ class StoreInst(Inst):
     @property
     def output(self):
         return False
+
+    def iseffectful(self):
+        return True
 
     def __str__(self):
         return super().__str__() + ' %' + str(self.variable)
@@ -261,6 +313,9 @@ class LoadInst(Inst):
     def __str__(self):
         return super().__str__() + ' %' + str(self.variable)
 
+    def iseffectful(self):
+        return False
+
     def debug(self, names, end='\n', file=None):
         super().debug(names, end=' ', file=file)
         print('%' + str(self.variable), end=end, file=file)
@@ -273,6 +328,9 @@ class CallInst(Inst):
     @property
     def output(self):
         return False
+
+    def iseffectful(self):
+        return True
 
     def __str__(self):
         return super().__str__() + ' @' + str(self.procedure)
@@ -293,6 +351,9 @@ class Param:
 
     def __repr__(self):
         return f'Param({self.label})'
+
+    def iseffectful(self):
+        return False
 
 class Block:
     anon_names = (f'b{i}' for i in itertools.count(1))
@@ -329,33 +390,34 @@ class Block:
         param = Param(next(self.anon_params))
         self.params.append(param)
         param.block = self
-        return param, param#ParamValue(self, param)
+        return param
 
-    def add_arg(self, param, pvalue, avalue):
-        self.cont.add_arg(param, pvalue, avalue)
+    def add_arg(self, param, value):
+        self.cont.add_arg(param, value)
 
-    def debug(self, end='\n', file=None):
-        params = ', '.join(param.label for param in self.params)
-        print(f'{self.name}({params}):', end=end, file=file)
-        for i, inst in enumerate(self.insts):
-            print(f'\t{i}:  {inst}', end=end, file=file)
-        if self.cont is not None:
-            self.cont.debug(end=end, file=file)
-        else:
-            print('\tNo jump', end=end, file=file)
+class Names:
+    def __init__(self, prefix='v'):
+        self.prefix = prefix
+        self.dict = {}
+        self.counter = itertools.count(1)
+
+    def __getitem__(self, key):
+        if key not in self.dict:
+            self.dict[key] = 'v' + str(next(self.counter))
+        return self.dict[key]
 
 class Procedure:
-    def __init__(self, blocks, procedures):
+    def __init__(self, name, blocks, procedures):
+        self.name = name
         self.blocks = blocks
         self.procedures = procedures
 
-    def debug(self, end='\n', file=None):
-        names = {}
-        counter = itertools.count(1)
-        for block in self.blocks:
-            for i, inst in enumerate(block.insts):
-                if inst not in names:
-                    names[inst] = names[block, i] = 'v' + str(next(counter))
+    def debug(self, names=None, end='\n', file=None):
+        for proc in self.procedures:
+            proc.debug(names, end, file)
+        if names is None:
+            names = Names()
+        print(self.name + ':', end=end, file=file)
         for block in self.blocks:
             params = ', '.join(param.label for param in block.params)
             if params:

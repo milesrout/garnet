@@ -370,33 +370,33 @@ class TestLengauerTarjanSSA(unittest.TestCase):
         end .'''
         self.do_test(prog, debug=True)
 
-    #def test_prog0(self):
-    #    from examples import prog0 as prog
-    #    self.do_test(prog, debug=True)
+    def test_prog0(self):
+        from examples import prog0 as prog
+        self.do_test(prog, debug=True)
 
-    #def test_prog0a(self):
-    #    from examples import prog0a as prog
-    #    self.do_test(prog, debug=True)
+    def test_prog0a(self):
+        from examples import prog0a as prog
+        self.do_test(prog, debug=True)
 
-    #def test_prog1(self):
-    #    from examples import prog1 as prog
-    #    self.do_test(prog, debug=True)
+    def test_prog1(self):
+        from examples import prog1 as prog
+        self.do_test(prog, debug=True)
 
-    #def test_prog2(self):
-    #    from examples import prog2 as prog
-    #    self.do_test(prog, debug=True)
+    def test_prog2(self):
+        from examples import prog2 as prog
+        self.do_test(prog, debug=True)
 
-    #def test_prog3(self):
-    #    from examples import prog3 as prog
-    #    self.do_test(prog, debug=True)
+    def test_prog3(self):
+        from examples import prog3 as prog
+        self.do_test(prog, debug=True)
 
-    #def test_prog4(self):
-    #    from examples import prog4 as prog
-    #    self.do_test(prog, debug=True)
+    def test_prog4(self):
+        from examples import prog4 as prog
+        self.do_test(prog, debug=True)
 
-    #def test_prog5(self):
-    #    from examples import prog5 as prog
-    #    self.do_test(prog, debug=True)
+    def test_prog5(self):
+        from examples import prog5 as prog
+        self.do_test(prog, debug=True)
 
     def test_prog6(self):
         from examples import prog6 as prog

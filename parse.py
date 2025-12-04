@@ -93,12 +93,6 @@ class Parser:
         if self.accept('call'):
             i = self.ident()
             return ast.CallStmt(i)
-        if self.accept('?'):
-            i = self.ident()
-            return ast.ReadStmt(i)
-        if self.accept('!'):
-            e = self.expression()
-            return ast.WriteStmt(e)
         if self.accept('begin'):
             ss = [self.statement()]
             while self.accept(';'):

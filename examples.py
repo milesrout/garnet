@@ -1,7 +1,11 @@
 prog0 = '''
-var x , y ;
+var x , y , z , out ;
+procedure test ;
+  out := out ;
 begin
-  x := 0 ;
+  x := x / 32 ;
+  y := y / 2 ;
+  x := x / 3 ;
   while x < 10 do
     begin
       y := x + x + x ;
@@ -10,7 +14,7 @@ begin
       x := x + 1
     end ;
   y := x ;
-  ! y
+  out := y
 end .
 '''
 
@@ -25,8 +29,19 @@ begin
       if x < 5 then x := 5 ;
       x := x + 1
     end ;
-  y := x ;
-  ! y
+  y := x
+end .
+'''
+
+prog0b = '''
+var x , y ;
+procedure hello ;
+    y := y ;
+begin
+    x := x / 4 ;
+    x := x / 3 ;
+    x := x / 2 ;
+    y := x
 end .
 '''
 
@@ -41,7 +56,6 @@ begin
   while x <= 10 do
   begin
     call square ;
-    ! squ ;
     x := x + 1
   end
 end .
@@ -68,12 +82,15 @@ begin
 end ;
 
 procedure primes ;
+var out ;
+procedure primestest ;
+  out := out ;
 begin
   arg := 2 ;
   while arg < max do
   begin
     call isprime ;
-    if ret == 1 then ! arg ;
+    if ret == 1 then out := arg ;
     arg := arg + 1
   end
 end ;
@@ -83,7 +100,13 @@ call primes
 '''
 
 prog3 = '''
-var x , y , z , q , r , n , f ;
+var x , y , z , q , r , n , f , out , in ;
+
+procedure test ;
+begin
+  out := in ;
+  in := out
+end ;
 
 procedure multiply ;
 var a , b ;
@@ -142,10 +165,10 @@ begin
 end ;
 
 begin
-  ? x ; ? y ; call multiply ; ! z ;
-  ? x ; ? y ; call divide ; ! q ; ! r ;
-  ? x ; ? y ; call gcd ; ! z ;
-  ? n ; f := 1 ; call fact ; ! f
+  x := in ; y := in ; call multiply ; out := z ;
+  x := in ; y := in ; call divide ; out := q ; out := r ;
+  x := in ; y := in ; call gcd ; out := z ;
+  n := in ; f := 1 ; call fact ; out := f
 end .
 '''
 
@@ -196,9 +219,12 @@ while 1 == 1 do
 '''
 
 prog6 = '''
-var a , b , x , y , z ;
+var a , b , x , y , z , in , out ;
+procedure test ;
+  in := out ;
 begin
-  ? x ; ? y ;
+  x := in ;
+  y := in ;
   a := x ;
   b := y ;
   z := 0 ;
@@ -208,6 +234,6 @@ begin
     a := 2 * a ;
     b := b / 2
   end ;
-  ! z
+  z := out
 end .
 '''

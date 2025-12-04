@@ -19,7 +19,7 @@ class SsaConverter(ast.Visitor):
         self.incomplete_params = collections.defaultdict(dict)
         self.blocks = []
         self.sealed_blocks = set()
-        self.procedures = {}
+        self.procedures = []
         self.current_proc = None
         self.current_break = None
 
@@ -33,29 +33,29 @@ class SsaConverter(ast.Visitor):
 
     def read_variable_recursive(self, variable, block):
         if block not in self.sealed_blocks:
-            param, value = block.param()
-            self.incomplete_params[block][variable] = (param, value)
+            param = block.param()
+            self.incomplete_params[block][variable] = param
         elif len(block.preds) == 1:
-            param, pvalue = block.param()
+            param = block.param()
             pred = next(iter(block.preds))
             avalue = self.read_variable(variable, pred)
-            self.add_block_args(variable, param, pvalue)
-            self.set_variable(variable, block, pvalue)
-            return pvalue
+            self.add_block_args(variable, param)
+            self.set_variable(variable, block, param)
+            return param
         else:
-            param, value = block.param()
-            self.set_variable(variable, block, value)
-            self.add_block_args(variable, param, value)
-        self.write_variable(variable, block, value)
-        return value
+            param = block.param()
+            self.set_variable(variable, block, param)
+            self.add_block_args(variable, param)
+        self.write_variable(variable, block, param)
+        return param
 
-    def add_block_args(self, variable, param, value):
-        for pred in value.block.preds:
-            pred.add_arg(param, value, self.read_variable(variable, pred))
+    def add_block_args(self, variable, param):
+        for pred in param.block.preds:
+            pred.add_arg(param, self.read_variable(variable, pred))
 
     def seal_block(self, block):
-        for variable, (param, value) in self.incomplete_params[block].items():
-            self.add_block_args(variable, param, value)
+        for variable, param in self.incomplete_params[block].items():
+            self.add_block_args(variable, param)
         self.sealed_blocks.add(block)
 
     def new_block(self, addendum=None):
@@ -73,7 +73,7 @@ class SsaConverter(ast.Visitor):
         bbodyend.jump(bexit)
         self.seal_block(bexit)
         bexit.ret()
-        return Procedure(self.blocks, self.procedures)
+        return Procedure('__main__', self.blocks, self.procedures)
 
     def get_variable(self, ident, block):
         if ident in self.free_variables[self.current_proc]:
@@ -99,8 +99,9 @@ class SsaConverter(ast.Visitor):
 
         for ident, decl1 in decl.proc_decls:
             converter = SsaConverter(self.constants, self.free_variables, self.escaped_variables)
-            self.procedures[ident] = converter.convert(decl1)
-            self.procedures[ident].debug()
+            proc = converter.convert(decl1)
+            proc.name = ident
+            self.procedures.append(proc)
 
         for ident, number in self.constants:
             value = block.emit(Inst.const(number))
@@ -151,16 +152,6 @@ class SsaConverter(ast.Visitor):
 
     def visit_CallStmt(self, stmt, block):
         block.emit(Inst.call(stmt.ident))
-        return block
-
-    def visit_ReadStmt(self, stmt, block):
-        value = block.emit(Inst.scan())
-        self.set_variable(stmt.ident, block, value)
-        return block
-
-    def visit_WriteStmt(self, stmt, block):
-        value = self.visit(stmt.expr, block)
-        block.emit(Inst.print(value))
         return block
 
     def visit_Statements(self, stmts, block):
