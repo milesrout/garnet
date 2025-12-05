@@ -13,24 +13,22 @@ class ParMove(enum.Enum):
     MOVED = enum.auto()
 
 def parallelmoves(moves, tmp):
-    SRC = 0
-    DST = 1
     state = [ParMove.NOTMOVED for _ in range(len(moves))]
     results = []
     def pmov1(i):
-        if moves[i][SRC] != moves[i][DST]:
+        if moves[i][0] != moves[i][1]:
             state[i] = ParMove.MOVING
             for j in range(len(moves)):
-                if moves[j][SRC] == moves[i][DST]:
+                if moves[j][0] == moves[i][1]:
                     match state[j]:
                       case ParMove.NOTMOVED:
                         pmov1(j)
                       case ParMove.MOVING:
-                        results.append((moves[j][SRC], tmp))
+                        results.append((moves[j][0], tmp))
                         moves[j] = (tmp, moves[j][1])
                       case ParMove.MOVED:
                         pass
-            results.append((moves[i][SRC], moves[i][DST]))
+            results.append((moves[i][0], moves[i][1]))
             state[i] = ParMove.MOVED
     for i in range(len(moves)):
         if state[i] == ParMove.NOTMOVED:
