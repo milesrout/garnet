@@ -1,23 +1,24 @@
 import operator
 import unittest
 
-import ssa as s
-import ssa_riscv64 as r
+from ssa import Param, Procedure
+import ssa.abstract as sa
+import ssa.riscv64 as sr
 
 CMP = {
-    s.Opcode.SEQ: (operator.eq, r.Opcode.SEQ, r.Opcode.SEQZ),
-    s.Opcode.SNE: (operator.ne, r.Opcode.SNE, r.Opcode.SNEZ),
-    s.Opcode.SLT: (operator.lt, r.Opcode.SLT, r.Opcode.SLTZ),
-    s.Opcode.SGT: (operator.gt, r.Opcode.SGT, r.Opcode.SGTZ),
-    s.Opcode.SLE: (operator.le, r.Opcode.SLE, r.Opcode.SLEZ),
-    s.Opcode.SGE: (operator.ge, r.Opcode.SGE, r.Opcode.SGEZ),
+    sa.Opcode.SEQ: (operator.eq, sr.Opcode.SEQ, sr.Opcode.SEQZ),
+    sa.Opcode.SNE: (operator.ne, sr.Opcode.SNE, sr.Opcode.SNEZ),
+    sa.Opcode.SLT: (operator.lt, sr.Opcode.SLT, sr.Opcode.SLTZ),
+    sa.Opcode.SGT: (operator.gt, sr.Opcode.SGT, sr.Opcode.SGTZ),
+    sa.Opcode.SLE: (operator.le, sr.Opcode.SLE, sr.Opcode.SLEZ),
+    sa.Opcode.SGE: (operator.ge, sr.Opcode.SGE, sr.Opcode.SGEZ),
 }
 
 def iscmp(op):
     return op in CMP
 
 def cmp_e(cmp, a, b):
-    return r.Imm(int(CMP[cmp][0](a, b)))
+    return sr.Imm(int(CMP[cmp][0](a, b)))
 
 def cmp_r(cmp):
     return CMP[cmp][1]
@@ -31,148 +32,149 @@ class InsSel:
 
     def fixblocks(self, proc):
         for block in proc.blocks:
-            block.preds = {self.blockmap[p] for p in block.preds}
+            block.preds = [self.blockmap[p] for p in block.preds]
+            block.succs = [self.blockmap[s] for s in block.succs]
             match block.cont:
-                case r.JumpCont(target=target):
+                case sr.JumpCont(target=target):
                     target.target = self.blockmap[target.target]
-                case r.BranchCont(ttrue=ttrue, tfals=tfals):
+                case sr.BranchCont(ttrue=ttrue, tfals=tfals):
                     ttrue.target = self.blockmap[ttrue.target]
                     tfals.target = self.blockmap[tfals.target]
 
     def do_munch_expr(self, inst):
-        if isinstance(inst, s.Param):
+        if isinstance(inst, Param):
             return inst
 
         match inst:
-            case s.Const(const):
-                return r.Inst.unary(r.Opcode.LI, r.Imm(const))
+            case sa.Const(const):
+                return sr.Inst.unary(sr.Opcode.LI, sr.Imm(const))
 
-            case s.Add(s.Const(c0), s.Const(c1)):
-                return r.Inst.unary(r.Opcode.LI, r.Imm(c0 + c1))
-            case s.Add(e0, s.Const(0)):
+            case sa.Add(sa.Const(c0), sa.Const(c1)):
+                return sr.Inst.unary(sr.Opcode.LI, sr.Imm(c0 + c1))
+            case sa.Add(e0, sa.Const(0)):
                 v = self.munch_expr(e)
                 return v
-            case s.Add(e0, s.Const(c1)):
+            case sa.Add(e0, sa.Const(c1)):
                 v0 = self.munch_expr(e0)
-                return r.Inst.binary(r.Opcode.ADDI, v0, r.Imm(c1))
-            case s.Add(e0, e1):
+                return sr.Inst.binary(sr.Opcode.ADDI, v0, sr.Imm(c1))
+            case sa.Add(e0, e1):
                 v0 = self.munch_expr(e0)
                 v1 = self.munch_expr(e1)
-                return r.Inst.binary(r.Opcode.ADD, v0, v1)
+                return sr.Inst.binary(sr.Opcode.ADD, v0, v1)
 
-            case s.Sub(s.Const(c0), s.Const(c1)):
-                return r.Inst.unary(r.Opcode.LI, r.Imm(c0 - c1))
-            case s.Sub(s.Const(0), e):
+            case sa.Sub(sa.Const(c0), sa.Const(c1)):
+                return sr.Inst.unary(sr.Opcode.LI, sr.Imm(c0 - c1))
+            case sa.Sub(sa.Const(0), e):
                 v = self.munch_expr(e)
-                return r.Inst.binary(r.Opcode.SUB, r.Imm(0), v)
-            case s.Sub(e0, s.Const(0)):
+                return sr.Inst.binary(sr.Opcode.SUB, sr.Imm(0), v)
+            case sa.Sub(e0, sa.Const(0)):
                 v = self.munch_expr(e)
                 return v
-            case s.Sub(e0, s.Const(c1)):
+            case sa.Sub(e0, sa.Const(c1)):
                 v0 = self.munch_expr(e0)
-                return r.Inst.binary(r.Opcode.ADDI, v0, r.Imm(-c1))
-            case s.Sub(e0, e1):
+                return sr.Inst.binary(sr.Opcode.ADDI, v0, sr.Imm(-c1))
+            case sa.Sub(e0, e1):
                 v0 = self.munch_expr(e0)
                 v1 = self.munch_expr(e1)
-                return r.Inst.binary(r.Opcode.SUB, v0, v1)
+                return sr.Inst.binary(sr.Opcode.SUB, v0, v1)
 
-            case s.Mul(s.Const(c0), s.Const(c1)):
-                return r.Inst.unary(r.Opcode.LI, r.Imm(c0 * c1))
-            case s.Mul(e, s.Const(0)):
-                return r.Imm(0)
-            case s.Mul(e, s.Const(1)):
+            case sa.Mul(sa.Const(c0), sa.Const(c1)):
+                return sr.Inst.unary(sr.Opcode.LI, sr.Imm(c0 * c1))
+            case sa.Mul(e, sa.Const(0)):
+                return sr.Imm(0)
+            case sa.Mul(e, sa.Const(1)):
                 v = self.munch_expr(e)
                 return v
-            case s.Mul(e, s.Const(2)):
+            case sa.Mul(e, sa.Const(2)):
                 v = self.munch_expr(e)
-                return r.Inst.binary(r.Opcode.ADD, v, v)
-            case s.Mul(e0, e1):
+                return sr.Inst.binary(sr.Opcode.ADD, v, v)
+            case sa.Mul(e0, e1):
                 v0 = self.munch_expr(e0)
                 v1 = self.munch_expr(e1)
-                return r.Inst.binary(r.Opcode.MUL, v0, v1)
+                return sr.Inst.binary(sr.Opcode.MUL, v0, v1)
 
-            case s.Div(s.Const(c0), s.Const(c1)) if c1 != 0:
-                return r.Inst.unary(r.Opcode.LI, r.Imm(c0 // c1))
-            case s.Div(e, s.Const(0)):
-                return r.Inst.unary(r.Opcode.LI, r.Imm(0))
-            case s.Div(e, s.Const(2)):
+            case sa.Div(sa.Const(c0), sa.Const(c1)) if c1 != 0:
+                return sr.Inst.unary(sr.Opcode.LI, sr.Imm(c0 // c1))
+            case sa.Div(e, sa.Const(0)):
+                return sr.Inst.unary(sr.Opcode.LI, sr.Imm(0))
+            case sa.Div(e, sa.Const(2)):
                 v = self.munch_expr(e)
-                v1 = r.Inst.binary(r.Opcode.SRLI, v, r.Imm(63))
-                v2 = r.Inst.binary(r.Opcode.ADD, v, v1)
-                v3 = r.Inst.binary(r.Opcode.SRAI, v2, r.Imm(1))
+                v1 = sr.Inst.binary(sr.Opcode.SRLI, v, sr.Imm(63))
+                v2 = sr.Inst.binary(sr.Opcode.ADD, v, v1)
+                v3 = sr.Inst.binary(sr.Opcode.SRAI, v2, sr.Imm(1))
                 self.output.append(v1)
                 self.output.append(v2)
                 return v3
-            case s.Div(e, s.Const(3)):
+            case sa.Div(e, sa.Const(3)):
                 v = self.munch_expr(e)
-                v1 = r.Inst.unary(r.Opcode.LI, r.Imm((2**64+2)//3, display=hex))
-                v2 = r.Inst.binary(r.Opcode.MULH, v1, v)
-                v3 = r.Inst.binary(r.Opcode.SRLI, v, r.Imm(63))
-                v4 = r.Inst.binary(r.Opcode.ADD, v2, v3)
+                v1 = sr.Inst.unary(sr.Opcode.LI, sr.Imm((2**64+2)//3, display=hex))
+                v2 = sr.Inst.binary(sr.Opcode.MULH, v1, v)
+                v3 = sr.Inst.binary(sr.Opcode.SRLI, v, sr.Imm(63))
+                v4 = sr.Inst.binary(sr.Opcode.ADD, v2, v3)
                 self.output.append(v1)
                 self.output.append(v2)
                 self.output.append(v3)
                 return v4
-            case s.Div(e, s.Const(n)) if n & (n - 1) == 0:
+            case sa.Div(e, sa.Const(n)) if n & (n - 1) == 0:
                 k = n.bit_length() - 1
                 v = self.munch_expr(e)
-                v0 = r.Inst.binary(r.Opcode.SRAI, v, r.Imm(k-1))
-                v1 = r.Inst.binary(r.Opcode.SRLI, v0, r.Imm(64-k))
-                v2 = r.Inst.binary(r.Opcode.ADD, v, v1)
-                v3 = r.Inst.binary(r.Opcode.SRAI, v2, r.Imm(k))
+                v0 = sr.Inst.binary(sr.Opcode.SRAI, v, sr.Imm(k-1))
+                v1 = sr.Inst.binary(sr.Opcode.SRLI, v0, sr.Imm(64-k))
+                v2 = sr.Inst.binary(sr.Opcode.ADD, v, v1)
+                v3 = sr.Inst.binary(sr.Opcode.SRAI, v2, sr.Imm(k))
                 self.output.append(v0)
                 self.output.append(v1)
                 self.output.append(v2)
                 return v3
-            case s.Div(e0, e1):
+            case sa.Div(e0, e1):
                 v0 = self.munch_expr(e0)
                 v1 = self.munch_expr(e1)
-                return r.Inst.binary(r.Opcode.DIV, v0, v1)
+                return sr.Inst.binary(sr.Opcode.DIV, v0, v1)
 
-            case s.Inst(cmp, (s.Const(c0), s.Const(c1))) if iscmp(cmp):
-                return r.Inst.unary(r.Opcode.LI, r.Imm(cmp_e(cmp, c0, c1)))
-            case s.Inst(cmp, (e0, s.Const(0))) if iscmp(cmp):
+            case sa.Inst(cmp, (sa.Const(c0), sa.Const(c1))) if iscmp(cmp):
+                return sr.Inst.unary(sr.Opcode.LI, sr.Imm(cmp_e(cmp, c0, c1)))
+            case sa.Inst(cmp, (e0, sa.Const(0))) if iscmp(cmp):
                 v0 = self.munch_expr(e0)
-                return r.Inst.unary(cmp_z(cmp), v0)
-            case s.Inst(cmp, (e0, e1)) if iscmp(cmp):
+                return sr.Inst.unary(cmp_z(cmp), v0)
+            case sa.Inst(cmp, (e0, e1)) if iscmp(cmp):
                 v0 = self.munch_expr(e0)
                 v1 = self.munch_expr(e1)
-                return r.Inst.binary(cmp_r(cmp), v0, v1)
+                return sr.Inst.binary(cmp_r(cmp), v0, v1)
 
-            case s.Odd(e):
+            case sa.Odd(e):
                 v0 = self.munch_expr(e)
-                v1 = r.Inst.binary(r.Opcode.ANDI, v0, r.Imm(1))
+                v1 = sr.Inst.binary(sr.Opcode.ANDI, v0, sr.Imm(1))
                 self.output.append(v1)
-                return r.Inst.unary(r.Opcode.SNEZ, v1)
+                return sr.Inst.unary(sr.Opcode.SNEZ, v1)
 
-            case s.Call(proc):
-                f = r.Inst.unary(r.Opcode.LA, r.Sym(proc))
+            case sa.Call(proc):
+                f = sr.Inst.unary(sr.Opcode.LA, sr.Sym(proc))
                 self.output.append(f)
-                return r.Inst.unary(r.PseudoOpcode.CALL, f)
+                return sr.Inst.unary(sr.PseudoOpcode.CALL, f)
 
-            case s.Store(e, var):
+            case sa.Store(e, var):
                 v = self.munch_expr(e)
-                a = r.Inst.unary(r.Opcode.LA, r.Sym(var))
+                a = sr.Inst.unary(sr.Opcode.LA, sr.Sym(var))
                 self.output.append(a)
-                return r.Inst.binary(r.Opcode.SD, a, v)
+                return sr.Inst.binary(sr.Opcode.SD, v, sr.Off(a, sr.Imm(0)))
 
-            case s.Load(var):
-                a = r.Inst.unary(r.Opcode.LA, r.Sym(var))
+            case sa.Load(var):
+                a = sr.Inst.unary(sr.Opcode.LA, sr.Sym(var))
                 self.output.append(a)
-                return r.Inst.unary(r.Opcode.LD, a)
+                return sr.Inst.unary(sr.Opcode.LD, sr.Off(a, sr.Imm(0)))
 
             case _:
                 print(f'{inst=}')
                 raise RuntimeError(f'Unsupported opcode: {inst.opcode}')
 
     def munch_expr(self, value):
-        if isinstance(value, s.Inst):
+        if not isinstance(value, Param):
             if value.done and not value.iseffectful():
                 return value.result
         inst = self.do_munch_expr(value)
         value.done = True
         value.result = inst
-        if not isinstance(inst, s.Param):
+        if not isinstance(inst, Param):
             self.output.append(inst)
         return inst
 
@@ -195,24 +197,25 @@ class InsSel:
                 self.munch_expr(inst)
                 self.outputs.append(self.output)
 
-        newblock = s.Block(block.name)
+        newblock = sa.Block(block.label)
         self.blockmap[block] = newblock
         match block.cont:
-            case s.ReturnCont():
-                newblock.cont = r.ReturnCont()
-            case s.JumpCont(target=target):
-                newblock.cont = r.Cont.jump(target.target)
+            case sa.ReturnCont():
+                newblock.cont = sr.ReturnCont()
+            case sa.JumpCont(target=target):
+                newblock.cont = sr.Cont.jump(target.target)
                 newblock.cont.target.args = {p: args[a] for p, a in target.args.items()}
-            case s.BranchCont(value=value, ttrue=ttrue, tfals=tfals):
+            case sa.BranchCont(value=value, ttrue=ttrue, tfals=tfals):
                 self.output = []
                 value = self.munch_expr(value)
                 self.outputs.insert(0, self.output)
-                newblock.cont = r.Cont.branch(value, ttrue.target, tfals.target)
+                newblock.cont = sr.Cont.branch(value, ttrue.target, tfals.target)
                 newblock.cont.ttrue.args = {p: args[a] for p, a in ttrue.args.items()}
                 newblock.cont.tfals.args = {p: args[a] for p, a in tfals.args.items()}
         newblock.insts = [a for b in reversed(self.outputs) for a in b]
         newblock.params = block.params[:]
-        newblock.preds = set(block.preds)
+        newblock.preds = block.preds[:]
+        newblock.succs = block.succs[:]
         return newblock
 
 class TestInsSel(unittest.TestCase):
@@ -271,6 +274,6 @@ def inssel(proc):
         newblock = sel.munch_block(block)
         blocks.append(newblock)
 
-    newproc = s.Procedure(proc.name, blocks, procs)
+    newproc = Procedure(proc.label, blocks, procs)
     sel.fixblocks(newproc)
     return newproc

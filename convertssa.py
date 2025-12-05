@@ -1,8 +1,11 @@
 import collections
 import contextlib
+import itertools
 import unittest
+
 import garnetast as ast
-from ssa import Block, Inst, Opcode, Procedure
+from ssa import Procedure, Param
+from ssa.abstract import Block, Inst, Opcode
 
 def convertssa(prog, const, escaped, free):
     converter = SsaConverter(const, escaped, free)
@@ -61,7 +64,7 @@ class SsaConverter(ast.Visitor):
     def new_block(self, addendum=None):
         block = Block()
         if addendum is not None:
-            block.name += '_' + addendum
+            block.label += '_' + addendum
         self.blocks.append(block)
         return block
 
@@ -100,7 +103,7 @@ class SsaConverter(ast.Visitor):
         for ident, decl1 in decl.proc_decls:
             converter = SsaConverter(self.constants, self.free_variables, self.escaped_variables)
             proc = converter.convert(decl1)
-            proc.name = ident
+            proc.label = ident
             self.procedures.append(proc)
 
         for ident, number in self.constants:

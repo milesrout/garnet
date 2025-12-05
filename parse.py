@@ -50,7 +50,7 @@ class Parser:
         b = self.block()
         self.expect('.')
         self.expect('eof')
-        b.name = '__main__'
+        b.label = '__main__'
         return b
 
     def block(self):
@@ -81,7 +81,7 @@ class Parser:
             b = self.block()
             self.expect(';')
             proc_decls.append((i, b))
-            b.name = i
+            b.label = i
         stmt = self.statement()
         return ast.Decl(
             const_decls,

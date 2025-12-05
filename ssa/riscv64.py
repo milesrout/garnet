@@ -1,31 +1,61 @@
+import abc
 import enum
 import ssa
-from ssa import ContEdge, Block, Procedure
+from ssa import ContEdge, Procedure
 from riscv64 import Opcode
 
-class Value:
-    pass
+__names__ = [
+    'Value', 'Reg', 'Zero', 'Imm', 'Sym',
+    'Inst',
+    'Cont',
+    'Block',
+]
+
+class Value(abc.ABC):
+    @abc.abstractmethod
+    def name(self, names):
+        ...
+
+    def debug(self, names, end='\n'):
+        print(self, end=end)
+
+    def name(self, names):
+        return str(self)
+
+class Off(Value):
+    assignable = False
+
+    def __init__(self, reg, off):
+        self.reg = reg
+        self.off = off
+
+    def __str__(self):
+        return f'{self.off}({self.reg})'
+
+    def name(self, names):
+        off = self.off.name(names)
+        reg = self.reg.name(names)
+        return f'{off}({reg})'
 
 class Reg(Value):
+    assignable = True
+
     def __init__(self, i):
         self.i = i
 
     def __str__(self):
-        return 'r' + str(self.i)
-
-    def debug(self, names, end='\n', file=None):
-        print(self, end=end, file=file)
+        return f'r{self.i}'
 
 class Zero(Value):
+    assignable = False
+
     def __str__(self):
         return 'x0'
 
-    def debug(self, names, end='\n', file=None):
-        print(self, end=end, file=file)
-
 class Imm(Value):
-    assignable = False
     __match_args__ = ('imm',)
+    assignable = False
+
     def __init__(self, imm, display=None):
         self.imm = imm
         if display is None:
@@ -41,31 +71,18 @@ class Imm(Value):
     def __repr__(self):
         return f'Imm({self.imm})'
 
-    def __eq__(self, other):
-        return (type(self) == type(other) and
-                self.imm == other.imm)
-
-    def __hash__(self):
-        return hash((Imm, self.imm))
-
 class Sym(Value):
-    assignable = False
     __match_args__ = ('sym',)
+    assignable = False
+
     def __init__(self, sym):
         self.sym = sym
 
-    def name(self, names):
+    def __str__(self):
         return self.sym
 
     def __repr__(self):
         return f'Sym({self.sym})'
-
-    def __eq__(self, other):
-        return (type(self) == type(other) and
-                self.sym == other.sym)
-
-    def __hash__(self):
-        return hash((Sym, self.sym))
 
 class PseudoOpcode(enum.Enum):
     # pseudo
@@ -74,16 +91,18 @@ class PseudoOpcode(enum.Enum):
     PARAM = enum.auto()
     CALL = enum.auto()
 
-class Inst:
+class Inst(ssa.Inst):
     assignable = True
+
     def __init__(self, opcode, args):
         self.opcode = opcode
         self.args = args
 
     @property
     def output(self):
-        return self.opcode not in {Opcode.NOP, Opcode.SD, Opcode.SW, Opcode.SH,
-                                   Opcode.SB, Opcode.MV, PseudoOpcode.CALL}
+        return self.opcode not in {
+                Opcode.NOP, Opcode.SD, Opcode.SW, Opcode.SH,
+                Opcode.SB, Opcode.MV, PseudoOpcode.CALL}
 
     def __str__(self):
         args = ', '.join(map(str, self.args))
@@ -93,28 +112,22 @@ class Inst:
         args = ', '.join(map(str, self.args))
         return f'Inst({self.opcode}, {self.args})'
 
-    def debug(self, names, end='\n', file=None):
+    def debug(self, names, end='\n'):
         parts = []
         for arg in self.args:
-            if isinstance(arg, Inst):
-                parts.append(names[arg])
-            elif isinstance(arg, ssa.Param):
-                parts.append(arg.label)
-            elif isinstance(arg, Block):
-                parts.append(arg.name)
-            elif isinstance(arg, Imm):
-                parts.append(str(arg))
-            elif isinstance(arg, Sym):
-                parts.append(str(arg.sym))
-            elif isinstance(arg, Reg):
-                parts.append(str(arg))
+            parts.append(arg.name(names))
+        if 0:
+            if self.output:
+                print(f'\t{names[self]} = ', end='')
             else:
-                raise RuntimeError(f'Invalid arg {type(arg)}')
-        if self.output:
-            print(f'\t{names[self]} = ', end='', file=file)
+                print('\t', end='')
+            print(f'{self.opcode.name.upper()} ' + ','.join(parts), end=end)
         else:
-            print('\t', end='', file=file)
-        print(f'{self.opcode.name.upper()} ' + ','.join(parts), end=end, file=file)
+            print('\t', end='')
+            print(self.opcode.name.lower(), end=' ')
+            if self.output:
+                print(names[self], end=',')
+            print(','.join(parts), end=end)
 
     @staticmethod
     def const(const):
@@ -146,14 +159,14 @@ class ConstInst(Inst):
         self.const = const
 
     def __str__(self):
-        return f'{self.opcode.name}({self.const})'#str(self.const)
+        return f'{self.opcode.name}({self.const})'
 
     def __repr__(self):
         return f'ConstInst({self.opcode}, {self.const})'
 
-    def debug(self, names, end='\n', file=None):
-        super().debug(names, end=' ', file=file)
-        print(str(self.const), end=end, file=file)
+    def debug(self, names, end='\n'):
+        super().debug(names, end=' ')
+        print(str(self.const), end=end)
 
 class FuncInst(Inst):
     def __init__(self, func):
@@ -166,11 +179,11 @@ class FuncInst(Inst):
     def __repr__(self):
         return f'FuncInst({self.opcode}, {self.func})'
 
-    def debug(self, names, end='\n', file=None):
-        super().debug(names, end=' ', file=file)
-        print(str(self.func), end=end, file=file)
+    def debug(self, names, end='\n'):
+        super().debug(names, end=' ')
+        print(str(self.func), end=end)
 
-class Cont:
+class Cont(ssa.Cont):
     @staticmethod
     def ret():
         return ReturnCont()
@@ -191,30 +204,13 @@ class Cont:
         ethen = ContEdge(then)
         return CallCont(value, then)
 
-    @property
-    def uses(self):
-        return frozenset()
-
-    @property
-    def targets(self):
-        return [edge.target for edge in self.edges]
-
-    @property
-    def args(self):
-        return frozenset().union(*(edge.get_args() for edge in self.edges))
-
-    def add_arg(self, param, pvalue, avalue):
-        for edge in self.edges:
-            if isinstance(edge, ContEdge):
-                edge.add_arg(param, pvalue, avalue)
-
 class ReturnCont(Cont):
     @property
     def edges(self):
         return []
 
-    def debug(self, names=None, end='\n', file=None):
-        print('\tRETURN', end=end, file=file)
+    def debug(self, names=None, end='\n'):
+        print('\treturn', end=end)
 
 class JumpCont(Cont):
     def __init__(self, target):
@@ -224,9 +220,9 @@ class JumpCont(Cont):
     def edges(self):
         return [self.target]
 
-    def debug(self, names=None, end='\n', file=None):
-        print('\tJUMP', end=' ', file=file)
-        self.target.debug(names=names, end=end, file=file)
+    def debug(self, names=None, end='\n'):
+        print('\tjump', end=' ')
+        self.target.debug(names=names, end=end)
 
 class BranchCont(Cont):
     def __init__(self, value, ttrue, tfals):
@@ -242,13 +238,13 @@ class BranchCont(Cont):
     def uses(self):
         return frozenset({self.value})
 
-    def debug(self, names=None, end='\n', file=None):
+    def debug(self, names=None, end='\n'):
         if isinstance(self.value, ssa.Param):
-            print('\tBRANCH ' + self.value.label, end=' ', file=file)
+            print('\tbranch ' + self.value.label, end=' ')
         else:
-            print('\tBRANCH ' + names[self.value], end=' ', file=file)
-        self.ttrue.debug(names=names, end=' ', file=file)
-        self.tfals.debug(names=names, end=end, file=file)
+            print('\tbranch ' + names[self.value], end=' ')
+        self.ttrue.debug(names=names, end=' ')
+        self.tfals.debug(names=names, end=end)
 
 class CallCont(Cont):
     def __init__(self, value, target):
@@ -263,6 +259,9 @@ class CallCont(Cont):
     def uses(self):
         return frozenset({self.value})
 
-    def debug(self, names=None, end='\n', file=None):
-        print('\tCALL ' + self.value.name(names), end=' ', file=file)
-        self.target.debug(names=names, end=end, file=file)
+    def debug(self, names=None, end='\n'):
+        print('\tcall ' + self.value.name(names), end=' ')
+        self.target.debug(names=names, end=end)
+
+class Block(ssa.Block):
+    pass
