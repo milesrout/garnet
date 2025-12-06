@@ -4,7 +4,7 @@ import itertools
 import unittest
 
 import garnetast as ast
-from ssa import Procedure, Param
+from ssa import Procedure
 from ssa.abstract import Block, Inst, Opcode
 
 def convertssa(prog, const, escaped, free):

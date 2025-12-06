@@ -38,11 +38,35 @@ class NumberExpr(Expr):
         self.number = number
 
 class UnaryExpr(Expr):
+    def __new__(cls, op, expr):
+        match expr:
+            case NumberExpr(number=n):
+                match op:
+                    case '+':   return expr
+                    case '-':   return NumberExpr(-n)
+                    case 'odd': return NumberExpr(n % 2)
+        return super().__new__(cls)
+
     def __init__(self, op, expr):
         self.op = op
         self.expr = expr
 
 class BinaryExpr(Expr):
+    def __new__(cls, op, lhs, rhs):
+        match (lhs, rhs):
+            case (NumberExpr(number=l), NumberExpr(number=r)):
+                match op:
+                    case '+':  return NumberExpr(l + r)
+                    case '-':  return NumberExpr(l - r)
+                    case '*':  return NumberExpr(l * r)
+                    case '==': return NumberExpr(int(l == r))
+                    case '!=': return NumberExpr(int(l != r))
+                    case '<=': return NumberExpr(int(l <= r))
+                    case '>=': return NumberExpr(int(l >= r))
+                    case '<':  return NumberExpr(int(l < r))
+                    case '>':  return NumberExpr(int(l > r))
+        return super().__new__(cls)
+
     def __init__(self, op, lhs, rhs):
         self.op = op
         self.lhs = lhs
@@ -62,17 +86,36 @@ class Statements(Stmt):
         self.stmts = stmts
 
 class IfStmt(Stmt):
+    def __new__(cls, cond, body):
+        match cond:
+            case NumberExpr(number=n):
+                return body if n else Statements([])
+        return super().__new__(cls)
+
     def __init__(self, cond, body):
         self.cond = cond
         self.body = body
 
 class IfElseStmt(Stmt):
+    def __new__(cls, cond, body, alt):
+        match cond:
+            case NumberExpr(number=n):
+                return body if n else alt
+        return super().__new__(cls)
+
     def __init__(self, cond, body, alt):
         self.cond = cond
         self.body = body
         self.alt = alt
 
 class WhileStmt(Stmt):
+    def __new__(cls, cond, body):
+        match cond:
+            case NumberExpr(number=n):
+                if not n:
+                    return Statements([])
+        return super().__new__(cls)
+
     def __init__(self, cond, body):
         self.cond = cond
         self.body = body

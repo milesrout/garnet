@@ -212,6 +212,9 @@ while 1 == 1 do
   begin
   if 4 == 4 then
     while 3 == 3 do
+      call foo
+  else
+    while 5 == 5 do
       call foo ;
   while 4 == 4 do
     call foo

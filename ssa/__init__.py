@@ -29,10 +29,7 @@ class ContEdge:
             print(self.target.label, end='(', file=file)
             for a, v in self.args.items():
                 print(a.label, end='=', file=file)
-                if isinstance(v, Param):
-                    print(v.label, end=', ', file=file)
-                else:
-                    print(names[v], end=', ', file=file)
+                print(v.name(names), end=', ', file=file)
             print(')', end=end, file=file)
         else:
             print(self.target.label, end=end, file=file)
@@ -90,6 +87,8 @@ class Param:
         self.label = label
 
     def name(self, names):
+        if self in names:
+            return names[self]
         return self.label
 
     def __str__(self):

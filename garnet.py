@@ -14,7 +14,7 @@ from dom import calcdominators
 from regalloc import regalloc
 
 def main():
-    from examples import prog2 as source
+    from examples import prog0 as source
     prog = parse(source)
     const, escaped, free = checkvars(prog)
     proc = convertssa(prog, const, escaped, free)
@@ -53,6 +53,9 @@ class DebugVisualiser:
         names = {}
         counter = itertools.count(1)
         for block in proc.blocks:
+            for p in block.params:
+                if p not in names:
+                    names[p] = 'r' + str(self.cols[block][p])
             for i, inst in enumerate(block.insts):
                 if inst not in names:
                     if inst in self.cols[block]:

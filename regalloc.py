@@ -101,7 +101,6 @@ class RegisterAllocator:
         for v in self.proc.blocks:
             if len(v.succs) > 1:
                 for i, u in enumerate(v.succs):
-                    print(u.preds)
                     assert len(u.preds) == 1
                     u.insts[:0] = do(v.cont.edges[i], v, u)
             elif len(v.succs) == 1:
@@ -109,83 +108,3 @@ class RegisterAllocator:
 
     def result(self):
         return self.colours
-
-class TestLengauerTarjanSSA(unittest.TestCase):
-    def do_test(self, source, debug=False, name=None):
-        from parse import parse
-        from checkvars import checkvars
-        prog = parse(source)
-        const, escaped, free = checkvars(prog)
-        from convertssa import convertssa
-        proc = convertssa(prog, const, escaped, free)
-        from sel.riscv64 import inssel
-        proc = inssel(proc)
-        proc.debug()
-        for proc in [proc, *proc.procedures]:
-            lt = LengauerTarjan(proc)
-            lt.splitcrit()
-            lt.dfs()
-            lt.semidominators()
-            lt.idominators()
-            lt.dominators()
-            lt.calcbackedges()
-            lt.calcloops()
-            lt.calclnf()
-            lt.dominatortree()
-            lt.frontier()
-            lt.allocate()
-            lt.parmove()
-            if debug:
-                lt.debug()
-                input()
-
-    def _test_myprog1(self):
-        prog = '''\
-        var x , y , z ;
-        begin
-            x := 0 ;
-            y := 1 ;
-            if x == y then
-            begin
-                z := x ;
-                z := x + x ;
-                z := z ;
-                z := x ;
-                z := x + x ;
-                y := z
-            end ;
-            x := y
-        end .'''
-        self.do_test(prog, debug=True)
-
-    def test_prog0(self):
-        from examples import prog0 as prog
-        self.do_test(prog, debug=True)
-
-    def test_prog0a(self):
-        from examples import prog0a as prog
-        self.do_test(prog, debug=True)
-
-    def test_prog1(self):
-        from examples import prog1 as prog
-        self.do_test(prog, debug=True)
-
-    def test_prog2(self):
-        from examples import prog2 as prog
-        self.do_test(prog, debug=True)
-
-    def test_prog3(self):
-        from examples import prog3 as prog
-        self.do_test(prog, debug=True)
-
-    def test_prog4(self):
-        from examples import prog4 as prog
-        self.do_test(prog, debug=True)
-
-    def test_prog5(self):
-        from examples import prog5 as prog
-        self.do_test(prog, debug=True)
-
-    def test_prog6(self):
-        from examples import prog6 as prog
-        self.do_test(prog)

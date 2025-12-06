@@ -239,10 +239,7 @@ class BranchCont(Cont):
         return frozenset({self.value})
 
     def debug(self, names=None, end='\n'):
-        if isinstance(self.value, ssa.Param):
-            print('\tbranch ' + self.value.label, end=' ')
-        else:
-            print('\tbranch ' + names[self.value], end=' ')
+        print('\tbranch ' + self.value.name(names), end=' ')
         self.ttrue.debug(names=names, end=' ')
         self.tfals.debug(names=names, end=end)
 
