@@ -1,3 +1,4 @@
+from scan import scan
 import garnetast as ast
 import unittest
 
@@ -8,10 +9,10 @@ def parse(source):
 class Parser:
     def __init__(self, string):
         self.string = string
-        self.tokens = self.string.strip().split()
+        self.tokens = list(scan(self.string))
         self.index = 0
         self.keywords = ('const var procedure call begin end '
-                        'if then else while do odd loop'.split())
+                        'if then else while do odd unopt loop'.split())
         self.token_type = self.calc_token_type()
 
     def calc_token_type(self):

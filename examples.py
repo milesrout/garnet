@@ -1,242 +1,257 @@
 prog0 = '''
-var x , y , z , out ;
-procedure test ;
-  out := out ;
+var x, y, z, out;
+procedure test;
+  out := out;
 begin
-  x := x / 32 ;
-  y := y / 2 ;
-  x := x / 3 ;
+  x := unopt 1;
+  y := unopt 2;
+  x := x / 32;
+  y := y / 2;
+  x := x / 3;
+  x := x / y;
   while x < 10 do
     begin
-      y := x + x + x ;
-      if x < 5 then x := 5 ;
-      y := x + x + x ;
+      y := x + x + x;
+      if x < 5 then x := 5;
+      y := x + x + x;
       x := x + 1
-    end ;
-  y := x ;
-  out := y
-end .
+    end;
+  y := x;
+  out := unopt y
+end.
 '''
 
 prog0a = '''
-var x , y ;
-procedure hello ;
-  x := y ;
+var x, y;
+procedure hello;
+  x := y;
 begin
-  x := 0 ;
+  x := 0;
   while x < 10 do
     begin
-      if x < 5 then x := 5 ;
+      if x < 5 then x := 5;
       x := x + 1
-    end ;
+    end;
   y := x
-end .
+end.
 '''
 
 prog0b = '''
-var x , y ;
-procedure hello ;
-    y := y ;
+var x, y;
 begin
-    x := x / 4 ;
-    x := x / 3 ;
-    x := x / 2 ;
+    x := unopt 0;
+    x := x / 4;
+    x := x / 3;
+    x := x / 2;
     y := x
-end .
+end.
 '''
 
 prog1 = '''
-var x , squ ;
-procedure square ;
+var x, squ;
+procedure square;
+  begin
+    squ := x * x
+  end;
 begin
-  squ := x * x
-end ;
-begin
-  x := 1 ;
+  x := 1;
   while x <= 10 do
   begin
-    call square ;
+    call square;
     x := x + 1
   end
-end .
+end.
 '''
 
 prog2 = '''
-const max = 100 ;
-var arg , ret ;
+const max = 100;
+var arg, ret;
 
-procedure isprime ;
-var i ;
+procedure isprime;
+var i;
 begin
-  ret := 1 ;
-  i := 2 ;
+  ret := 1;
+  i := 2;
   while i < arg do
   begin
     if arg / i * i == arg then
     begin
-      ret := 0 ;
+      ret := 0;
       i := arg
-    end ;
+    end;
     i := i + 1
   end
-end ;
+end;
 
-procedure primes ;
-var out ;
-procedure primestest ;
-  out := out ;
+procedure primes;
+var out;
+procedure primestest;
+  out := out;
 begin
-  arg := 2 ;
+  arg := 2;
   while arg < max do
   begin
-    call isprime ;
-    if ret == 1 then out := arg ;
+    call isprime;
+    if ret == 1 then out := arg;
     arg := arg + 1
   end
-end ;
+end;
 
 call primes
 .
 '''
 
 prog3 = '''
-var x , y , z , q , r , n , f , out , in ;
+var x, y, z, q, r, n, f, out, in;
 
-procedure test ;
+procedure test;
 begin
-  out := in ;
+  out := in;
   in := out
-end ;
+end;
 
-procedure multiply ;
-var a , b ;
+procedure multiply;
+var a, b;
 begin
-  a := x ;
-  b := y ;
-  z := 0 ;
+  a := x;
+  b := y;
+  z := 0;
   while b > 0 do
   begin
-    if odd b then z := z + a ;
-    a := 2 * a ;
+    if odd b then z := z + a;
+    a := 2 * a;
     b := b / 2
   end
-end ;
+end;
 
-procedure divide ;
-var w ;
+procedure divide;
+var w;
 begin
-  r := x ;
-  q := 0 ;
-  w := y ;
-  while w <= r do w := 2 * w ;
+  r := x;
+  q := 0;
+  w := y;
+  while w <= r do w := 2 * w;
   while w > y do
   begin
-    q := 2 * q ;
-    w := w / 2 ;
+    q := 2 * q;
+    w := w / 2;
     if w <= r then
     begin
-      r := r - w ;
+      r := r - w;
       q := q + 1
     end
   end
-end ;
+end;
 
-procedure gcd ;
-var f , g ;
+procedure gcd;
+var f, g;
 begin
-  f := x ;
-  g := y ;
+  f := x;
+  g := y;
   while f != g do
   begin
-    if f < g then g := g - f ;
+    if f < g then g := g - f;
     if g < f then f := f - g
-  end ;
+  end;
   z := f
-end ;
+end;
 
-procedure fact ;
+procedure fact;
 begin
   if n > 1 then
   begin
-    f := n * f ;
-    n := n - 1 ;
+    f := n * f;
+    n := n - 1;
     call fact
   end
-end ;
+end;
 
 begin
-  x := in ; y := in ; call multiply ; out := z ;
-  x := in ; y := in ; call divide ; out := q ; out := r ;
-  x := in ; y := in ; call gcd ; out := z ;
-  n := in ; f := 1 ; call fact ; out := f
-end .
+  x := unopt 1; y := unopt 1; call multiply; out := z;
+  x := unopt 1; y := unopt 1; call divide; out := q; out := r;
+  x := unopt 1; y := unopt 1; call gcd; out := z;
+  n := unopt 1; f := 1; call fact; out := f
+end.
 '''
 
 prog4 = '''
-const x = 100 ;
-var y , z ;
-procedure foo ;
-	const w = 200 ;
-	var a , b , c ;
-	procedure bar ;
-		const q = 300 ;
-		var m , n ;
+const x = 100;
+var y, z;
+procedure foo;
+	const w = 200;
+	var a, b, c;
+	procedure bar;
+		const q = 300;
+		var m, n;
 		begin
-			m := a ;
-			n := m + b ;
+			m := a;
+			n := m + b;
 			b := n * c
-		end ;
+		end;
 	begin 
-		a := w + z ;
-		b := y ;
-		c := x ;
-		call bar ;
-		y := a ;
+		a := w + z;
+		b := y;
+		c := x;
+		call bar;
+		y := a;
 		z := b
-	end ;
+	end;
 begin
-	y := 0 ;
-	z := 1 ;
+	y := 0;
+	z := 1;
 	call foo
-end .
+end.
 '''
 
 prog5 = '''
-procedure foo ;
-  var a ;
-begin
-  a := 1
-end ;
-while 1 == 1 do
-  while 2 == 2 do
+var a, b;
+procedure foo;
   begin
-  if 4 == 4 then
-    while 3 == 3 do
-      call foo
-  else
-    while 5 == 5 do
-      call foo ;
-  while 4 == 4 do
-    call foo
-  end .
+    a := a + 1
+  end;
+begin
+  a := 1;
+  b := a;
+  while b == 1 do
+    while b == 2 do
+    begin
+      if b == 4 then
+	while b == 3 do
+	  begin
+	    call foo;
+	    b := a
+	  end
+      else
+	while a == 5 do
+	  begin
+	    call foo;
+	    b := a
+	  end;
+      while a == 4 do
+	begin
+	  call foo;
+	  b := a
+	end
+    end
+end.
 '''
 
 prog6 = '''
-var a , b , x , y , z , in , out ;
-procedure test ;
-  in := out ;
+var a, b, x, y, z, in, out;
+procedure test;
+  in := out;
 begin
-  x := in ;
-  y := in ;
-  a := x ;
-  b := y ;
-  z := 0 ;
+  x := in;
+  y := in;
+  a := x;
+  b := y;
+  z := 0;
   while b > 0 do
   begin
-    if odd b then z := z + a ;
-    a := 2 * a ;
+    if odd b then z := z + a;
+    a := 2 * a;
     b := b / 2
-  end ;
+  end;
   z := out
-end .
+end.
 '''
