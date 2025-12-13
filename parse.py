@@ -152,6 +152,9 @@ class Parser:
             e = self.expression()
             self.expect(')')
             return e
+        if self.accept('unopt'):
+            e = self.factor()
+            return ast.UnaryExpr('unopt', e)
         if n := self.accept('number'):
             return ast.NumberExpr(int(n))
         i = self.ident()

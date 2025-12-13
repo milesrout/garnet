@@ -53,11 +53,11 @@ class InsSel:
 
         match inst:
             case sa.Const(const):
-                return sr.Inst.unary(sr.Opcode.LI, sr.Imm(const))
+                return sr.Inst.unary(sr.Opcode.LI, sr.Imm(const, display=inst.display))
 
             case sa.Add(e0, sa.Const(c1)):
                 v0 = self.munch_expr(e0)
-                return sr.Inst.binary(sr.Opcode.ADDI, v0, sr.Imm(c1))
+                return sr.Inst.binary(sr.Opcode.ADDI, v0, sr.Imm(c1, display=inst.arg_1.display))
             case sa.Add(e0, e1):
                 v0 = self.munch_expr(e0)
                 v1 = self.munch_expr(e1)
@@ -65,7 +65,7 @@ class InsSel:
 
             case sa.Sub(e0, sa.Const(c1)):
                 v0 = self.munch_expr(e0)
-                return sr.Inst.binary(sr.Opcode.ADDI, v0, sr.Imm(-c1))
+                return sr.Inst.binary(sr.Opcode.ADDI, v0, sr.Imm(-c1, display=inst.arg_1.display))
             case sa.Sub(e0, e1):
                 v0 = self.munch_expr(e0)
                 v1 = self.munch_expr(e1)
@@ -76,9 +76,14 @@ class InsSel:
                 v1 = self.munch_expr(e1)
                 return sr.Inst.binary(sr.Opcode.MUL, v0, v1)
 
+            case sa.Mulh(e0, e1):
+                v0 = self.munch_expr(e0)
+                v1 = self.munch_expr(e1)
+                return sr.Inst.binary(sr.Opcode.MULH, v0, v1)
+
             case sa.Sra(e0, sa.Const(c1)):
                 v0 = self.munch_expr(e0)
-                return sr.Inst.binary(sr.Opcode.SRAI, v0, sr.Imm(c1))
+                return sr.Inst.binary(sr.Opcode.SRAI, v0, sr.Imm(c1, display=inst.arg_1.display))
             case sa.Sra(e0, e1):
                 v0 = self.munch_expr(e0)
                 v1 = self.munch_expr(e1)
@@ -86,7 +91,7 @@ class InsSel:
 
             case sa.Srl(e0, sa.Const(c1)):
                 v0 = self.munch_expr(e0)
-                return sr.Inst.binary(sr.Opcode.SRLI, v0, sr.Imm(c1))
+                return sr.Inst.binary(sr.Opcode.SRLI, v0, sr.Imm(c1, display=inst.arg_1.display))
             case sa.Srl(e0, e1):
                 v0 = self.munch_expr(e0)
                 v1 = self.munch_expr(e1)
@@ -94,50 +99,12 @@ class InsSel:
 
             case sa.Sll(e0, sa.Const(c1)):
                 v0 = self.munch_expr(e0)
-                return sr.Inst.binary(sr.Opcode.SLLI, v0, sr.Imm(c1))
+                return sr.Inst.binary(sr.Opcode.SLLI, v0, sr.Imm(c1, display=inst.arg_1.display))
             case sa.Sll(e0, e1):
                 v0 = self.munch_expr(e0)
                 v1 = self.munch_expr(e1)
                 return sr.Inst.binary(sr.Opcode.SLL, v0, v1)
 
-            #case sa.Div(sa.Const(c0), sa.Const(c1)) if c1 != 0:
-            #    raise RuntimeError('Constant folding should be done earlier')
-            #    return sr.Inst.unary(sr.Opcode.LI, sr.Imm(c0 // c1))
-            #case sa.Div(e, sa.Const(0)):
-            #    raise RuntimeError('Constant folding should be done earlier')
-            #    return sr.Inst.unary(sr.Opcode.LI, sr.Imm(0))
-            #case sa.Div(e, sa.Const(2)):
-            #    #raise RuntimeError('Strength reduction should be done earlier')
-            #    v = self.munch_expr(e)
-            #    v1 = sr.Inst.binary(sr.Opcode.SRLI, v, sr.Imm(63))
-            #    v2 = sr.Inst.binary(sr.Opcode.ADD, v, v1)
-            #    v3 = sr.Inst.binary(sr.Opcode.SRAI, v2, sr.Imm(1))
-            #    self.output.append(v1)
-            #    self.output.append(v2)
-            #    return v3
-            #case sa.Div(e, sa.Const(3)):
-            #    #raise RuntimeError('Strength reduction should be done earlier')
-            #    v = self.munch_expr(e)
-            #    v1 = sr.Inst.unary(sr.Opcode.LI, sr.Imm((2**64+2)//3, display=hex))
-            #    v2 = sr.Inst.binary(sr.Opcode.MULH, v1, v)
-            #    v3 = sr.Inst.binary(sr.Opcode.SRLI, v, sr.Imm(63))
-            #    v4 = sr.Inst.binary(sr.Opcode.ADD, v2, v3)
-            #    self.output.append(v1)
-            #    self.output.append(v2)
-            #    self.output.append(v3)
-            #    return v4
-            #case sa.Div(e, sa.Const(n)) if n & (n - 1) == 0:
-            #    #raise RuntimeError('Strength reduction should be done earlier')
-            #    k = n.bit_length() - 1
-            #    v = self.munch_expr(e)
-            #    v0 = sr.Inst.binary(sr.Opcode.SRAI, v, sr.Imm(k-1))
-            #    v1 = sr.Inst.binary(sr.Opcode.SRLI, v0, sr.Imm(64-k))
-            #    v2 = sr.Inst.binary(sr.Opcode.ADD, v, v1)
-            #    v3 = sr.Inst.binary(sr.Opcode.SRAI, v2, sr.Imm(k))
-            #    self.output.append(v0)
-            #    self.output.append(v1)
-            #    self.output.append(v2)
-            #    return v3
             case sa.Div(e0, e1):
                 v0 = self.munch_expr(e0)
                 v1 = self.munch_expr(e1)
@@ -172,6 +139,9 @@ class InsSel:
                 a = sr.Inst.unary(sr.Opcode.LA, sr.Sym(var))
                 self.output.append(a)
                 return sr.Inst.unary(sr.Opcode.LD, sr.Off(a, sr.Imm(0)))
+
+            case sa.Unopt(e):
+                return self.do_munch_expr(e)
 
             case _:
                 print(f'{inst=}')

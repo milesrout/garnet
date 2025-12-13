@@ -124,9 +124,10 @@ class SsaConverter(ast.Visitor):
 
     def visit_UnaryExpr(self, expr, block):
         unop_to_opcode = {
-            '+':   Opcode.ADD,
-            '-':   Opcode.SUB,
-            'odd': Opcode.ODD,
+            '+':     Opcode.ADD,
+            '-':     Opcode.SUB,
+            'odd':   Opcode.ODD,
+            'unopt': Opcode.UNOPT,
         }
         opcode = unop_to_opcode[expr.op]
         value = self.visit(expr.expr, block)

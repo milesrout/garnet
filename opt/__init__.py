@@ -38,7 +38,14 @@ class Optimiser:
                 e6 = s.Inst.binary(s.Opcode.SRA, e4, e5)
                 block.emit_before(inst, [e2, e3, e4, e5])
                 inst.replace(e6)
-            #case s.Div(e1, s.Const(3)):
+            case s.Div(e1, s.Const(3)):
+                e2 = s.Inst.const((2**64 + 2) // 3, display=hex)
+                e3 = s.Inst.binary(s.Opcode.MULH, e1, e2)
+                e4 = s.Inst.const(63)
+                e5 = s.Inst.binary(s.Opcode.SRL, e1, e4)
+                e6 = s.Inst.binary(s.Opcode.ADD, e3, e5)
+                block.emit_before(inst, [e2, e3, e4, e5])
+                inst.replace(e6)
             case s.Div(e1, s.Const(n)) if n & (n-1) == 0:
                 k = n.bit_length() - 1
                 e2 = s.Inst.const(k-1)

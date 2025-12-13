@@ -25,15 +25,15 @@ class ContEdge:
     def get_args(self):
         return frozenset(self.args.values())
 
-    def debug(self, names=None, end='\n', file=None):
+    def debug(self, names=None, end='\n'):
         if self.args:
-            print(self.target.label, end='(', file=file)
+            print(self.target.label, end='(')
             for a, v in self.args.items():
-                print(a.name(names), end='=', file=file)
-                print(v.name(names), end=', ', file=file)
-            print(')', end=end, file=file)
+                print(a.name(names), end='=')
+                print(v.name(names), end=', ')
+            print(')', end=end)
         else:
-            print(self.target.label, end=end, file=file)
+            print(self.target.label, end=end)
 
 class Cont:
     @property
@@ -107,15 +107,15 @@ class Inst(Value):
                 return super().__getattribute__(name)
         return super().__getattribute__(name)
 
-    def debug(self, names, end='\n', file=None):
+    def debug(self, names, end='\n'):
         parts = [str(self.opcode.name)]
         for arg in self.args:
             parts.append(arg.name(names))
         if self.output:
             name = self.name(names)
-            print(f'\t{name} = ' + ' '.join(parts), end=end, file=file)
+            print(f'\t{name} = ' + ' '.join(parts), end=end)
         else:
-            print(f'\t' + ' '.join(parts), end=end, file=file)
+            print(f'\t' + ' '.join(parts), end=end)
 
     def iseffectful(self):
         return True
@@ -180,21 +180,21 @@ class Procedure:
         self.blocks = blocks
         self.procedures = procedures
 
-    def debug(self, names=None, end='\n', file=None):
+    def debug(self, names=None, end='\n'):
         for proc in self.procedures:
-            proc.debug(names, end, file)
+            proc.debug(names, end)
         if names is None:
             names = Names()
-        print(self.label + ':', end=end, file=file)
+        print(self.label + ':', end=end)
         for block in self.blocks:
-            params = ', '.join(param.label for param in block.params)
+            params = ', '.join(names[param] for param in block.params)
             if params:
-                print(f'{block.label}({params}):', end=end, file=file)
+                print(f'{block.label}({params}):', end=end)
             else:
-                print(f'{block.label}:', end=end, file=file)
+                print(f'{block.label}:', end=end)
             for inst in block.insts:
-                inst.debug(names, end=end, file=file)
+                inst.debug(names, end=end)
             if block.cont is not None:
-                block.cont.debug(names, end=end, file=file)
+                block.cont.debug(names, end=end)
             else:
-                print('\tNo jump', end=end, file=file)
+                print('\tNo jump', end=end)

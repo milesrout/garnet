@@ -124,6 +124,7 @@ class Type(enum.Enum):
 
 class Opcode(enum.Enum):
     NOP = enum.auto()
+    UNOPT = enum.auto()
     CONST = enum.auto()
     STORE = enum.auto()
     LOAD = enum.auto()
@@ -132,6 +133,7 @@ class Opcode(enum.Enum):
     ADD = enum.auto()
     SUB = enum.auto()
     MUL = enum.auto()
+    MULH = enum.auto()
     DIV = enum.auto()
     SLT = enum.auto()
     SGT = enum.auto()
@@ -148,6 +150,7 @@ OPCODE0 = [
     Opcode.NOP,
 ]
 OPCODE1 = [
+    Opcode.UNOPT,
     Opcode.ODD,
     Opcode.NEG,
 ]
@@ -155,6 +158,7 @@ OPCODE2 = [
     Opcode.ADD,
     Opcode.SUB,
     Opcode.MUL,
+    Opcode.MULH,
     Opcode.DIV,
     Opcode.SLT,
     Opcode.SGT,
@@ -212,8 +216,8 @@ class Inst(ssa.Inst):
         return f'{cls}({parts})'
 
     @staticmethod
-    def const(const):
-        return ConstInst(const)
+    def const(const, display=str):
+        return ConstInst(const, display)
 
     @staticmethod
     def store(variable, value):
@@ -243,19 +247,20 @@ class Inst(ssa.Inst):
         return False
 
 class ConstInst(Inst):
-    def __init__(self, const):
+    def __init__(self, const, display=str):
         super().__init__(Opcode.CONST, ())
         self.const = const
+        self.display = display
 
     def __repr__(self):
         return f'ConstInst({self.const})'
 
     def __str__(self):
-        return str(self.const)
+        return self.display(self.const)
 
     def debug(self, names, end='\n'):
         super().debug(names, end=' ')
-        print(str(self.const), end=end)
+        print(self.display(self.const), end=end)
 
 class StoreInst(Inst):
     def __init__(self, variable, value):
