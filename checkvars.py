@@ -1,17 +1,19 @@
 import collections
 from copy import copy
+
 import garnetast as ast
 
 def checkvars(prog):
     varck = VariableChecker()
     varck.visit(prog)
-    return (varck.const_decls, varck.escaped_variables, varck.free_variables)
+    return (varck.constants, varck.escaped_variables, varck.free_variables)
 
 class VariableChecker(ast.ExprVisitor):
     def __init__(self):
         self.free_variables = collections.defaultdict(set)
         self.escaped_variables = collections.defaultdict(set)
-        self.const_decls = set()
+        self.constants = collections.defaultdict(set)
+        self.const_decls = dict()
         self.var_decls = set()
         self.local_decls = set()
         self.proc_decls = set()
@@ -25,7 +27,7 @@ class VariableChecker(ast.ExprVisitor):
         self.current_proc = decl
 
         for ident, number in decl.const_decls:
-            self.const_decls.add(ident)
+            self.const_decls[ident] = number
         for ident in decl.var_decls:
             self.var_decls.add(ident)
             self.local_decls.add(ident)
@@ -40,6 +42,7 @@ class VariableChecker(ast.ExprVisitor):
             escaped_variables.update(self.free_variables[decl1])
             self.local_decls = old_local_decls
 
+        self.constants[decl] = copy(self.const_decls)
         self.escaped_variables[decl] = escaped_variables
         self.visit(decl.stmt)
 

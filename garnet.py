@@ -9,6 +9,7 @@ import garnetast as ast
 from parse import parse
 from checkvars import checkvars
 from convertssa import convertssa
+from opt import optimise
 from sel.riscv64 import inssel
 from dom import calcdominators
 from regalloc import regalloc
@@ -18,7 +19,8 @@ def main():
     prog = parse(source)
     const, escaped, free = checkvars(prog)
     proc = convertssa(prog, const, escaped, free)
-    proc1 = inssel(proc)
+    proc0 = optimise(proc)
+    proc1 = inssel(proc0)
     with open('dominator.dot', 'w') as file:
         print('digraph {', file=file)
         dom = calcdominators(proc1)
@@ -52,13 +54,18 @@ class DebugVisualiser:
     def _debug(self, proc):
         names = {}
         counter = itertools.count(1)
+        pcounter = itertools.count(1)
+        SHOWREG = 1
         for block in proc.blocks:
             for p in block.params:
                 if p not in names:
-                    names[p] = 'r' + str(self.cols[block][p])
+                    if SHOWREG:
+                        names[p] = 'r' + str(self.cols[block][p])
+                    else:
+                        names[p] = 'p' + str(next(pcounter))
             for i, inst in enumerate(block.insts):
                 if inst not in names:
-                    if inst in self.cols[block]:
+                    if SHOWREG and inst in self.cols[block]:
                         names[inst] = 'r' + str(self.cols[block][inst])
                     else:
                         names[inst] = 'v' + str(next(counter))
@@ -66,7 +73,7 @@ class DebugVisualiser:
         #print('digraph {')
         for block in proc.blocks:
             print('\t', block.label, f'[shape=box nojustify=true label="', end='')
-            params = ', '.join(param.label for param in block.params)
+            params = ', '.join(names[param] for param in block.params)
             if params:
                 params = '(' + params + ')'
             print(f'{block.label}{params}:', end='\\l')

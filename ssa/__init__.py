@@ -1,3 +1,4 @@
+import abc
 import enum
 import itertools
 import unittest
@@ -28,7 +29,7 @@ class ContEdge:
         if self.args:
             print(self.target.label, end='(', file=file)
             for a, v in self.args.items():
-                print(a.label, end='=', file=file)
+                print(a.name(names), end='=', file=file)
                 print(v.name(names), end=', ', file=file)
             print(')', end=end, file=file)
         else:
@@ -52,53 +53,85 @@ class Cont:
             if isinstance(edge, ContEdge):
                 edge.add_arg(param, value)
 
-class Inst:
-    __match_args__ = ("opcode", "args")
+class Value:
+    def __init__(self):
+        self.forwarded = None
 
-    def __init__(self, opcode, args):
-        self.opcode = opcode
-        self.args = args
+    def find(self):
+        result = self
+        while isinstance(result, Inst):
+            if result.forwarded is None:
+                return result
+            result = result.forwarded
+        return result
 
-    @property
-    def arg0(self):
-        return self.args[0]
+    def replace(self, value):
+        print(f'replace {self} with {value}')
+        self.find().forward(value)
 
-    @property
-    def arg1(self):
-        return self.args[1]
+    def forward(self, value):
+        assert self.forwarded is None
+        self.forwarded = value
 
     def name(self, names):
         return names[self]
+
+    def iseffectful(self):
+        return False
+
+class Inst(Value):
+    __match_args__ = ("opcode", "args")
+
+    def __init__(self, opcode, args):
+        super().__init__()
+        self.opcode = opcode
+        self._args = args
+
+    def arg(self, i):
+        return self._args[i].find()
+
+    @property
+    def args(self):
+        for i in range(len(self._args)):
+            yield self.arg(i)
+
+    def __getattribute__(self, name):
+        if name.startswith('arg_'):
+            try:
+                index = int(name[4:])
+            except ValueError:
+                return super().__getattribute__(name)
+            try:
+                return self.arg(index)
+            except IndexError:
+                return super().__getattribute__(name)
+        return super().__getattribute__(name)
 
     def debug(self, names, end='\n', file=None):
         parts = [str(self.opcode.name)]
         for arg in self.args:
             parts.append(arg.name(names))
         if self.output:
-            name = names[self]
+            name = self.name(names)
             print(f'\t{name} = ' + ' '.join(parts), end=end, file=file)
         else:
             print(f'\t' + ' '.join(parts), end=end, file=file)
 
-class Param:
-    assignable = False
+    def iseffectful(self):
+        return True
 
-    def __init__(self, label):
-        self.label = label
+class Param(Value):
+    assignable = True
 
-    def name(self, names):
-        if self in names:
-            return names[self]
-        return self.label
-
-    def __str__(self):
-        return self.label
+    def __init__(self, block):
+        super().__init__()
+        self.block = block
 
     def __repr__(self):
-        return f'Param({self.label})'
+        return f'Param({self.block.label})'
 
-    def iseffectful(self):
-        return False
+    def __str__(self):
+        return f'@{self.block.label}'
 
 class Names:
     def __init__(self, prefix='v'):
@@ -114,6 +147,7 @@ class Names:
 class Block:
     anon_labels = (f'b{i}' for i in itertools.count(1))
     anon_params = (f'p{i}' for i in itertools.count(1))
+
     def __init__(self, label=None):
         self.insts = []
         if label is None:
@@ -124,14 +158,17 @@ class Block:
         self.succs = []
         self.params = []
 
+    def emit_before(self, inst, insts):
+        index = self.insts.index(inst)
+        self.insts[index:index] = insts
+
     def emit(self, inst):
         self.insts.append(inst)
         return inst
 
     def param(self):
-        param = Param(next(self.anon_params))
+        param = Param(self)
         self.params.append(param)
-        param.block = self
         return param
 
     def add_arg(self, param, value):

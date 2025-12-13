@@ -1,5 +1,6 @@
 import collections
 import contextlib
+import functools
 import itertools
 import unittest
 
@@ -38,6 +39,8 @@ class SsaConverter(ast.Visitor):
         if block not in self.sealed_blocks:
             param = block.param()
             self.incomplete_params[block][variable] = param
+        elif len(block.preds) == 0:
+            raise RuntimeError(f'Syntax error: unbound local variable {variable}')
         elif len(block.preds) == 1:
             param = block.param()
             pred = next(iter(block.preds))
@@ -78,21 +81,24 @@ class SsaConverter(ast.Visitor):
         bexit.ret()
         return Procedure('__main__', self.blocks, self.procedures)
 
-    def get_variable(self, ident, block):
-        if ident in self.free_variables[self.current_proc]:
-            return block.emit(Inst.load(ident))
-        elif ident in self.escaped_variables[self.current_proc]:
-            return block.emit(Inst.load(ident))
+    def get_variable(self, variable, block):
+        if variable in self.constants[self.current_proc]:
+            value = self.constants[self.current_proc][variable]
+            return block.emit(Inst.const(value))
+        elif variable in self.free_variables[self.current_proc]:
+            return block.emit(Inst.load(variable))
+        elif variable in self.escaped_variables[self.current_proc]:
+            return block.emit(Inst.load(variable))
         else:
-            return self.read_variable(ident, block)
+            return self.read_variable(variable, block)
 
-    def set_variable(self, ident, block, value):
-        if ident in self.free_variables[self.current_proc]:
-            block.emit(Inst.store(ident, value))
-        elif ident in self.escaped_variables[self.current_proc]:
-            block.emit(Inst.store(ident, value))
+    def set_variable(self, variable, block, value):
+        if variable in self.free_variables[self.current_proc]:
+            block.emit(Inst.store(variable, value))
+        elif variable in self.escaped_variables[self.current_proc]:
+            block.emit(Inst.store(variable, value))
         else:
-            self.write_variable(ident, block, value)
+            self.write_variable(variable, block, value)
 
     ####
 
@@ -105,10 +111,6 @@ class SsaConverter(ast.Visitor):
             proc = converter.convert(decl1)
             proc.label = ident
             self.procedures.append(proc)
-
-        for ident, number in self.constants:
-            value = block.emit(Inst.const(number))
-            self.write_variable(ident, block, value)
 
         block = self.visit(decl.stmt, block)
         self.current_proc = old_current_proc
@@ -154,8 +156,10 @@ class SsaConverter(ast.Visitor):
         return block
 
     def visit_CallStmt(self, stmt, block):
-        block.emit(Inst.call(stmt.ident))
-        return block
+        bthen = self.new_block('cthen')
+        block.call(stmt.ident, bthen)
+        self.seal_block(bthen)
+        return bthen
 
     def visit_Statements(self, stmts, block):
         for stmt in stmts.stmts:

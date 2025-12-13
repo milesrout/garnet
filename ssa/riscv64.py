@@ -11,18 +11,19 @@ __names__ = [
     'Block',
 ]
 
-class Value(abc.ABC):
+class Value(ssa.Value, abc.ABC):
     @abc.abstractmethod
+    def debug(self, names, end='\n'):
+        print(self, end=end)
+
+class SimpleValue(Value):
     def name(self, names):
-        ...
+        return str(self)
 
     def debug(self, names, end='\n'):
         print(self, end=end)
 
-    def name(self, names):
-        return str(self)
-
-class Off(Value):
+class Off(SimpleValue):
     assignable = False
 
     def __init__(self, reg, off):
@@ -37,7 +38,7 @@ class Off(Value):
         reg = self.reg.name(names)
         return f'{off}({reg})'
 
-class Reg(Value):
+class Reg(SimpleValue):
     assignable = True
 
     def __init__(self, i):
@@ -46,13 +47,13 @@ class Reg(Value):
     def __str__(self):
         return f'r{self.i}'
 
-class Zero(Value):
+class Zero(SimpleValue):
     assignable = False
 
     def __str__(self):
         return 'x0'
 
-class Imm(Value):
+class Imm(SimpleValue):
     __match_args__ = ('imm',)
     assignable = False
 
@@ -71,7 +72,7 @@ class Imm(Value):
     def __repr__(self):
         return f'Imm({self.imm})'
 
-class Sym(Value):
+class Sym(SimpleValue):
     __match_args__ = ('sym',)
     assignable = False
 
@@ -91,12 +92,11 @@ class PseudoOpcode(enum.Enum):
     PARAM = enum.auto()
     CALL = enum.auto()
 
-class Inst(ssa.Inst):
+class Inst(ssa.Inst, Value):
     assignable = True
 
     def __init__(self, opcode, args):
-        self.opcode = opcode
-        self.args = args
+        super().__init__(opcode, args)
 
     @property
     def output(self):
@@ -118,7 +118,8 @@ class Inst(ssa.Inst):
             parts.append(arg.name(names))
         if 0:
             if self.output:
-                print(f'\t{names[self]} = ', end='')
+                name = self.name(names)
+                print(f'\t{name} = ', end='')
             else:
                 print('\t', end='')
             print(f'{self.opcode.name.upper()} ' + ','.join(parts), end=end)
@@ -126,7 +127,7 @@ class Inst(ssa.Inst):
             print('\t', end='')
             print(self.opcode.name.lower(), end=' ')
             if self.output:
-                print(names[self], end=',')
+                print(self.name(names), end=',')
             print(','.join(parts), end=end)
 
     @staticmethod
@@ -200,16 +201,16 @@ class Cont(ssa.Cont):
         return BranchCont(value, ethen, ealt)
 
     @staticmethod
-    def call(value, then):
+    def call(proc, then):
         ethen = ContEdge(then)
-        return CallCont(value, then)
+        return CallCont(proc, ethen)
 
 class ReturnCont(Cont):
     @property
     def edges(self):
         return []
 
-    def debug(self, names=None, end='\n'):
+    def debug(self, names, end='\n'):
         print('\treturn', end=end)
 
 class JumpCont(Cont):
@@ -220,7 +221,7 @@ class JumpCont(Cont):
     def edges(self):
         return [self.target]
 
-    def debug(self, names=None, end='\n'):
+    def debug(self, names, end='\n'):
         print('\tjump', end=' ')
         self.target.debug(names=names, end=end)
 
@@ -238,27 +239,23 @@ class BranchCont(Cont):
     def uses(self):
         return frozenset({self.value})
 
-    def debug(self, names=None, end='\n'):
+    def debug(self, names, end='\n'):
         print('\tbranch ' + self.value.name(names), end=' ')
         self.ttrue.debug(names=names, end=' ')
         self.tfals.debug(names=names, end=end)
 
 class CallCont(Cont):
-    def __init__(self, value, target):
-        self.value = value
-        self.target = target
+    def __init__(self, proc, then):
+        self.proc = proc
+        self.then = then
 
     @property
     def edges(self):
-        return [self.target]
+        return [self.then]
 
-    @property
-    def uses(self):
-        return frozenset({self.value})
-
-    def debug(self, names=None, end='\n'):
-        print('\tcall ' + self.value.name(names), end=' ')
-        self.target.debug(names=names, end=end)
+    def debug(self, names, end='\n'):
+        print('\tcall ' + self.proc, end=' ')
+        self.then.debug(names=names, end=end)
 
 class Block(ssa.Block):
     pass

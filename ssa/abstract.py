@@ -13,6 +13,38 @@ __names__ = [
     'Block',
 ]
 
+class Block(ssa.Block):
+    def __str__(self):
+        return self.label
+
+    def ret(self):
+        assert self.cont is None
+        self.cont = Cont.ret()
+        assert self.cont is not None
+
+    def jump(self, target):
+        assert self.cont is None
+        self.cont = Cont.jump(target)
+        self.succs.append(target)
+        target.preds.append(self)
+        assert self.cont is not None
+
+    def branch(self, value, then, alt):
+        assert self.cont is None
+        self.cont = Cont.branch(value, then, alt)
+        self.succs.append(then)
+        self.succs.append(alt)
+        then.preds.append(self)
+        alt.preds.append(self)
+        assert self.cont is not None
+
+    def call(self, proc, then):
+        assert self.cont is None
+        self.cont = Cont.call(proc, then)
+        self.succs.append(then)
+        then.preds.append(self)
+        assert self.cont is not None
+
 class Cont(ssa.Cont):
     @staticmethod
     def ret():
@@ -28,6 +60,11 @@ class Cont(ssa.Cont):
         ethen = ContEdge(then)
         ealt = ContEdge(alt)
         return BranchCont(value, ethen, ealt)
+
+    @staticmethod
+    def call(proc, then):
+        ethen = ContEdge(then)
+        return CallCont(proc, ethen)
 
 class ReturnCont(Cont):
     @property
@@ -48,6 +85,19 @@ class JumpCont(Cont):
     def debug(self, names=None, end='\n'):
         print('\tJUMP', end=' ')
         self.target.debug(names=names, end=end)
+
+class CallCont(Cont):
+    def __init__(self, proc, then):
+        self.proc = proc
+        self.then = then
+
+    @property
+    def edges(self):
+        return [self.then]
+
+    def debug(self, names=None, end='\n'):
+        print('\tCALL', self.proc, end=' ')
+        self.then.debug(names=names, end=end)
 
 class BranchCont(Cont):
     def __init__(self, value, ttrue, tfals):
@@ -90,6 +140,9 @@ class Opcode(enum.Enum):
     SEQ = enum.auto()
     SNE = enum.auto()
     NEG = enum.auto()
+    SRA = enum.auto()
+    SRL = enum.auto()
+    SLL = enum.auto()
 
 OPCODE0 = [
     Opcode.NOP,
@@ -109,19 +162,22 @@ OPCODE2 = [
     Opcode.SGE,
     Opcode.SEQ,
     Opcode.SNE,
+    Opcode.SRA,
+    Opcode.SRL,
+    Opcode.SLL,
 ]
 OPCODE_MATCH = {
     Opcode.CONST: ('const',),
-    Opcode.STORE: ('arg0', 'variable'),
+    Opcode.STORE: ('arg_0', 'variable'),
     Opcode.LOAD: ('variable',),
     Opcode.CALL: ('procedure',),
 }
 for op in OPCODE0:
     OPCODE_MATCH[op] = ()
 for op in OPCODE1:
-    OPCODE_MATCH[op] = ('arg0',)
+    OPCODE_MATCH[op] = ('arg_0',)
 for op in OPCODE2:
-    OPCODE_MATCH[op] = ('arg0', 'arg1')
+    OPCODE_MATCH[op] = ('arg_0', 'arg_1')
 
 class InstMeta(type):
     def __instancecheck__(cls, inst):
@@ -139,17 +195,21 @@ class Inst(ssa.Inst):
     def output(self):
         return self.opcode not in {Opcode.NOP, Opcode.CALL, Opcode.STORE}
 
-    def __str__(self):
-        parts = [str(self.opcode.name)]
+    def __repr__(self):
+        cls = self.__class__.__qualname__
+        args = [str(self.opcode)]
         for arg in self.args:
-            parts.append(str(arg))
-        return ' '.join(parts)
+            args.append(repr(arg))
+        parts = ', '.join(args)
+        return f'{cls}({parts})'
 
-    def iseffectful(self):
-        return self.opcode in [
-            Opcode.STORE,
-            Opcode.CALL,
-        ]
+    def __str__(self):
+        cls = self.__class__.__name__
+        args = [self.opcode.name]
+        for arg in self.args:
+            args.append(str(arg))
+        parts = ', '.join(args)
+        return f'{cls}({parts})'
 
     @staticmethod
     def const(const):
@@ -179,28 +239,19 @@ class Inst(ssa.Inst):
     def binary(op, lhs, rhs):
         return Inst(op, (lhs, rhs))
 
-    @staticmethod
-    def add(lhs, rhs):
-        return Inst(Opcode.ADD, (lhs, rhs))
-
-    @staticmethod
-    def sub(lhs, rhs):
-        return Inst(Opcode.SUB, (lhs, rhs))
-
-    @staticmethod
-    def mul(lhs, rhs):
-        return Inst(Opcode.MUL, (lhs, rhs))
+    def iseffectful(self):
+        return False
 
 class ConstInst(Inst):
     def __init__(self, const):
         super().__init__(Opcode.CONST, ())
         self.const = const
 
-    def __str__(self):
-        return f'{self.opcode.name} {self.const}'
+    def __repr__(self):
+        return f'ConstInst({self.const})'
 
-    def iseffectful(self):
-        return False
+    def __str__(self):
+        return str(self.const)
 
     def debug(self, names, end='\n'):
         super().debug(names, end=' ')
@@ -215,15 +266,15 @@ class StoreInst(Inst):
     def output(self):
         return False
 
-    def iseffectful(self):
-        return True
-
     def __str__(self):
         return super().__str__() + ' %' + str(self.variable)
 
     def debug(self, names, end='\n'):
         super().debug(names, end=' ')
         print('%' + str(self.variable), end=end)
+
+    def iseffectful(self):
+        return True
 
 class LoadInst(Inst):
     def __init__(self, variable):
@@ -233,47 +284,6 @@ class LoadInst(Inst):
     def __str__(self):
         return super().__str__() + ' %' + str(self.variable)
 
-    def iseffectful(self):
-        return False
-
     def debug(self, names, end='\n'):
         super().debug(names, end=' ')
         print('%' + str(self.variable), end=end)
-
-class CallInst(Inst):
-    def __init__(self, procedure):
-        super().__init__(Opcode.CALL, ())
-        self.procedure = procedure
-
-    @property
-    def output(self):
-        return False
-
-    def iseffectful(self):
-        return True
-
-    def __str__(self):
-        return super().__str__() + ' @' + str(self.procedure)
-
-    def debug(self, names, end='\n'):
-        super().debug(names, end=' ')
-        print('@' + str(self.procedure), end=end)
-
-class Block(ssa.Block):
-    def ret(self):
-        assert self.cont is None
-        self.cont = Cont.ret()
-
-    def jump(self, target):
-        assert self.cont is None
-        self.cont = Cont.jump(target)
-        self.succs.append(target)
-        target.preds.append(self)
-
-    def branch(self, value, then, alt):
-        assert self.cont is None
-        self.cont = Cont.branch(value, then, alt)
-        self.succs.append(then)
-        self.succs.append(alt)
-        then.preds.append(self)
-        alt.preds.append(self)
