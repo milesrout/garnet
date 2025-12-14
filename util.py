@@ -1,8 +1,10 @@
 import functools
 import inspect
 
-def trace(*, include_self=False, restrict=None, name=None):
+class GarnetError(RuntimeError):
+    pass
 
+def trace(*, include_self=False, restrict=None, name=None):
     def decorator(f):
         sig = inspect.signature(f)
 
@@ -24,5 +26,4 @@ def trace(*, include_self=False, restrict=None, name=None):
             return f(*args, **kwds)
 
         return wrapper
-
     return decorator

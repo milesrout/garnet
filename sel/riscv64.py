@@ -2,6 +2,7 @@ import operator
 import unittest
 
 from ssa import Param, Procedure
+from riscv64 import Register
 import ssa.abstract as sa
 import ssa.riscv64 as sr
 
@@ -124,11 +125,6 @@ class InsSel:
                 self.output.append(v1)
                 return sr.Inst.unary(sr.Opcode.SNEZ, v1)
 
-            case sa.Call(proc):
-                f = sr.Inst.unary(sr.Opcode.LA, sr.Sym(proc))
-                self.output.append(f)
-                return sr.Inst.unary(sr.PseudoOpcode.CALL, f)
-
             case sa.Store(e, var):
                 v = self.munch_expr(e)
                 a = sr.Inst.unary(sr.Opcode.LA, sr.Sym(var))
@@ -170,7 +166,8 @@ class InsSel:
         args = {}
         for arg in block.cont.args:
             self.output = []
-            args[arg] = self.munch_expr(arg.find())
+            if arg is not sa.AbstractReturnValue:
+                args[arg] = self.munch_expr(arg.find())
             self.outputs.append(self.output)
 
         for inst in reversed(block.insts):
@@ -187,9 +184,14 @@ class InsSel:
             case sa.JumpCont(target=target):
                 newblock.cont = sr.Cont.jump(target.target)
                 newblock.cont.target.args = {p: args[a].find() for p, a in target.args.items()}
-            case sa.CallCont(proc=proc, then=then):
-                newblock.cont = sr.Cont.call(proc, then.target)
-                newblock.cont.then.args = {p: args[a].find() for p, a in then.args.items()}
+            case sa.CallCont(proc=proc, params=params, then=then):
+                newparams = []
+                for param in params:
+                    self.output = []
+                    newparams.append(self.munch_expr(param.find()))
+                    self.outputs.insert(0, self.output)
+                newblock.cont = sr.Cont.call(proc, newparams, then.target)
+                newblock.cont.then.args = {p: args[a].find() for p, a in then.args.items() if a is not sa.AbstractReturnValue}
             case sa.BranchCont(value=value, ttrue=ttrue, tfals=tfals):
                 self.output = []
                 value = self.munch_expr(value.find())

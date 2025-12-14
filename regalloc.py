@@ -5,6 +5,7 @@ import sys
 import unittest
 
 import ssa.riscv64 as r
+from riscv64 import REGALLOC, Register
 
 class ParMove(enum.Enum):
     NOTMOVED = enum.auto()
@@ -53,8 +54,14 @@ class RegisterAllocator:
             # parameter assignments are most similar to the registers assigned
             # to the continuation arguments that target this block, if they
             # have already been computed.
-            assignment = {p: i for i, p in enumerate(block.params)}
-            assigned = set(range(len(block.params)))
+            if block.label.endswith('_cthen'):
+                params = block.params[1:]
+            else:
+                params = block.params
+            assignment = {p: REGALLOC[i] for i, p in enumerate(params)}
+            if block.label.endswith('_cthen'):
+                assignment[block.params[0]] = Register.A0
+            assigned = set(assignment.values())
             last_use = {}
             for i, inst in enumerate(block.insts):
                 for arg in inst.args:
@@ -70,12 +77,11 @@ class RegisterAllocator:
                         if last_use[arg] == inst:
                             assigned.discard(assignment[arg])
                 if inst.output:
-                    inst_value = block.insts[i]
-                    b = next(c for c in itertools.count(0) if c not in assigned)
-                    assignment[inst_value] = b
-                    if inst_value in last_use:
-                        assigned.add(b)
-            self.colours[block] = assignment
+                    b = next(c for c in REGALLOC if c not in assigned)
+                    assignment[inst] = b
+                    if inst in last_use:
+                        assigned.add(assignment[inst])
+            self.colours[block] = {k: r.Reg(v) for k, v in assignment.items()}
             for c in self.dom.dom[block]:
                 if c != block:
                     go(c)
@@ -88,8 +94,8 @@ class RegisterAllocator:
             tmp = 0
             movs = []
             for ru, rv in e.args.items():
-                cu = self.colours[u][ru]
-                cv = self.colours[v][rv]
+                cu = REGALLOC.index(self.colours[u][ru].reg)
+                cv = REGALLOC.index(self.colours[v][rv].reg)
                 tmp = max([tmp, cu, cv])
                 if cu != cv:
                     movs.append((cv, cu))
@@ -97,7 +103,10 @@ class RegisterAllocator:
                 return []
             tmp += 1
             movs = parallelmoves(movs, tmp)
-            return [r.Inst.binary(r.Opcode.MV, r.Reg(dst), r.Reg(src)) for (src,dst) in movs]
+            return [r.Inst.binary(r.Opcode.MV,
+                                  r.Reg(REGALLOC[dst]),
+                                  r.Reg(REGALLOC[src]))
+                    for (src, dst) in movs]
         for v in self.proc.blocks:
             if len(v.succs) > 1:
                 for i, u in enumerate(v.succs):

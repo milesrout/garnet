@@ -2,7 +2,7 @@ import abc
 import enum
 import ssa
 from ssa import ContEdge, Procedure
-from riscv64 import Opcode
+from riscv64 import Opcode, Register
 
 __names__ = [
     'Value', 'Reg', 'Zero', 'Imm', 'Sym',
@@ -41,11 +41,14 @@ class Off(SimpleValue):
 class Reg(SimpleValue):
     assignable = True
 
-    def __init__(self, i):
-        self.i = i
+    def __init__(self, reg):
+        self.reg = reg
+
+    def __repr__(self):
+        return f'Reg({self.reg.name})'
 
     def __str__(self):
-        return f'r{self.i}'
+        return self.reg.name.lower()
 
 class Zero(SimpleValue):
     assignable = False
@@ -201,9 +204,9 @@ class Cont(ssa.Cont):
         return BranchCont(value, ethen, ealt)
 
     @staticmethod
-    def call(proc, then):
+    def call(proc, params, then):
         ethen = ContEdge(then)
-        return CallCont(proc, ethen)
+        return CallCont(proc, params, ethen)
 
 class ReturnCont(Cont):
     @property
@@ -245,8 +248,9 @@ class BranchCont(Cont):
         self.tfals.debug(names=names, end=end)
 
 class CallCont(Cont):
-    def __init__(self, proc, then):
+    def __init__(self, proc, params, then):
         self.proc = proc
+        self.params = params
         self.then = then
 
     @property
@@ -254,7 +258,15 @@ class CallCont(Cont):
         return [self.then]
 
     def debug(self, names, end='\n'):
-        print('\tcall ' + self.proc, end=' ')
+        if len(self.params):
+            print('\tcall ' + self.proc, end='(')
+            for i, arg in enumerate(self.params):
+                if i == len(self.params) - 1:
+                    print(arg.name(names), end=') ')
+                else:
+                    print(arg.name(names), end=', ')
+        else:
+            print('\tcall ' + self.proc, end=' ')
         self.then.debug(names=names, end=end)
 
 class Block(ssa.Block):

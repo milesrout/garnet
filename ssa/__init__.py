@@ -28,9 +28,12 @@ class ContEdge:
     def debug(self, names=None, end='\n'):
         if self.args:
             print(self.target.label, end='(')
-            for a, v in self.args.items():
+            for i, (a, v) in enumerate(self.args.items()):
                 print(a.name(names), end='=')
-                print(v.name(names), end=', ')
+                if i == len(self.args) - 1:
+                    print(v.name(names), end='')
+                else:
+                    print(v.name(names), end=', ')
             print(')', end=end)
         else:
             print(self.target.label, end=end)
@@ -92,8 +95,10 @@ class Inst(Value):
 
     @property
     def args(self):
+        result = []
         for i in range(len(self._args)):
-            yield self.arg(i)
+            result.append(self.arg(i))
+        return result
 
     def __getattribute__(self, name):
         if name.startswith('arg_'):

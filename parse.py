@@ -1,6 +1,10 @@
+from util import GarnetError
 from scan import scan
 import garnetast as ast
 import unittest
+
+class GarnetSyntaxError(GarnetError):
+    pass
 
 def parse(source):
     parser = Parser(source)
@@ -11,13 +15,15 @@ class Parser:
         self.string = string
         self.tokens = list(scan(self.string))
         self.index = 0
-        self.keywords = ('const var procedure call begin end '
+        self.keywords = ('const var procedure call begin end param '
                         'if then else while do odd unopt loop'.split())
         self.token_type = self.calc_token_type()
 
-    def calc_token_type(self):
+    def calc_token_type(self, index=None):
+        if index is None:
+            index = self.index
         try:
-            token = self.tokens[self.index]
+            token = self.tokens[index]
         except IndexError:
             return 'eof'
         if not token.isascii():
@@ -38,6 +44,13 @@ class Parser:
                 return ''
             return self.tokens[self.index - 1]
 
+    def fmttoken(self, index):
+        token = self.tokens[index]
+        toktype = self.calc_token_type(index)
+        if toktype == 'ident' or toktype == 'number':
+            return f"{toktype}('{token}')"
+        return str(toktype)
+
     def expect(self, *tokens):
         if self.token_type in tokens:
             self.index += 1
@@ -45,18 +58,30 @@ class Parser:
             if self.token_type == 'eof':
                 return ''
             return self.tokens[self.index - 1]
-        raise RuntimeError(f'Syntax error: expected {tokens}, got {self.token_type}')
+        if len(tokens) == 1:
+            expected = repr(tokens[0])
+        else:
+            expected = repr(tokens)
+        actual = self.fmttoken(self.index)
+        amount = 5
+        context_before = range(self.index - amount, self.index)
+        context_after = range(self.index + 1, self.index + amount)
+        context_before = ' '.join(map(self.fmttoken, context_before))
+        context_after = ' '.join(map(self.fmttoken, context_after))
+        context = f'{context_before} >>{actual}<< {context_after}'
+        raise GarnetSyntaxError(
+            f'expected {expected}, got {actual} ({context})')
 
     def program(self):
-        b = self.block()
+        b = self.block('__main__')
         self.expect('.')
         self.expect('eof')
-        b.label = '__main__'
         return b
 
-    def block(self):
+    def block(self, name):
         const_decls = []
         var_decls = []
+        param_decls = []
         proc_decls = []
         if self.accept('const'):
             i = self.ident()
@@ -79,21 +104,25 @@ class Parser:
         while self.accept('procedure'):
             i = self.ident()
             self.expect(';')
-            b = self.block()
+            ps = []
+            if self.accept('param'):
+                ps.append(self.ident())
+                while self.accept(','):
+                    ps.append(self.ident())
+                self.expect(';')
+            b = self.block(i)
             self.expect(';')
-            proc_decls.append((i, b))
+            proc_decls.append(ast.ProcDecl(i, ps, b))
             b.label = i
         stmt = self.statement()
         return ast.Decl(
+            name,
             const_decls,
             var_decls,
             proc_decls,
             stmt)
 
     def statement(self):
-        if self.accept('call'):
-            i = self.ident()
-            return ast.CallStmt(i)
         if self.accept('begin'):
             ss = [self.statement()]
             while self.accept(';'):
@@ -116,10 +145,8 @@ class Parser:
         if self.accept('loop'):
             body = self.statement()
             return ast.LoopStmt(body)
-        i = self.ident()
-        self.expect(':=')
         e = self.expression()
-        return ast.AssignStmt(i, e)
+        return ast.ExprStmt(e)
 
     def condition(self):
         if self.accept('odd'):
@@ -131,6 +158,16 @@ class Parser:
         return ast.BinaryExpr(op, lhs, rhs)
 
     def expression(self):
+        a = self.arith_expression()
+        if self.accept(':='):
+            # TODO: Support assignments to things other than IdentExpr
+            if not isinstance(a, ast.IdentExpr):
+                raise SyntaxError('May only assign to identifiers')
+            e = self.expression()
+            return ast.AssignExpr(a, e)
+        return a
+
+    def arith_expression(self):
         if op := self.accept('+', '-'):
             t = self.term()
             e = ast.UnaryExpr(op, t)
@@ -156,10 +193,27 @@ class Parser:
         if self.accept('unopt'):
             e = self.factor()
             return ast.UnaryExpr('unopt', e)
+        if self.accept('call'):
+            i = self.ident()
+            if self.accept('('):
+                ps = self.arglist()
+                self.expect(')')
+            else:
+                ps = []
+            return ast.CallExpr(i, ps)
         if n := self.accept('number'):
             return ast.NumberExpr(int(n))
         i = self.ident()
         return ast.IdentExpr(i)
+
+    def arglist(self):
+        ps = []
+        p = self.expression()
+        ps.append(p)
+        while self.accept(','):
+            p = self.expression()
+            ps.append(p)
+        return ps
 
     def ident(self):
         return self.expect('ident')

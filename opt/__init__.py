@@ -72,6 +72,11 @@ class Optimiser:
         return self.proc
 
 def optimise(proc):
+    for i in range(len(proc.procedures)):
+        proc.procedures[i] = optimise(proc.procedures[i])
+    return _optimise(proc)
+
+def _optimise(proc):
     opt = Optimiser(proc)
     opt.peephole()
     return opt.result()

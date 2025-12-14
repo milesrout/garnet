@@ -11,6 +11,7 @@ __names__ = [
     'Opcode',
     'Inst',
     'Block',
+    'AbstractReturnValue',
 ]
 
 class Block(ssa.Block):
@@ -38,9 +39,9 @@ class Block(ssa.Block):
         alt.preds.append(self)
         assert self.cont is not None
 
-    def call(self, proc, then):
+    def call(self, proc, params, then):
         assert self.cont is None
-        self.cont = Cont.call(proc, then)
+        self.cont = Cont.call(proc, params, then)
         self.succs.append(then)
         then.preds.append(self)
         assert self.cont is not None
@@ -62,9 +63,9 @@ class Cont(ssa.Cont):
         return BranchCont(value, ethen, ealt)
 
     @staticmethod
-    def call(proc, then):
+    def call(proc, params, then):
         ethen = ContEdge(then)
-        return CallCont(proc, ethen)
+        return CallCont(proc, params, ethen)
 
 class ReturnCont(Cont):
     @property
@@ -86,17 +87,45 @@ class JumpCont(Cont):
         print('\tJUMP', end=' ')
         self.target.debug(names=names, end=end)
 
+class AbstractReturnValue:
+    assignable = False
+    def __str__(self):
+        return '$'
+    def name(self, names):
+        return str(self)
+    def find(self):
+        return self
+    def debug(self, names=None, end='\n'):
+        print('\t' + str(self), end=end)
+    @property
+    def args(self):
+        return []
+    @property
+    def output(self):
+        return False
+AbstractReturnValue = AbstractReturnValue()
+
 class CallCont(Cont):
-    def __init__(self, proc, then):
+    def __init__(self, proc, params, then):
         self.proc = proc
+        self.params = params
         self.then = then
 
     @property
     def edges(self):
         return [self.then]
 
+    @property
+    def uses(self):
+        return frozenset(self.args)
+
     def debug(self, names=None, end='\n'):
-        print('\tCALL', self.proc, end=' ')
+        if len(self.params):
+            print('\tCALL', self.proc, end='(')
+            for i, arg in enumerate(self.params):
+                print(arg.name(names), end=', ' if i < len(self.params) - 1 else ') ')
+        else:
+            print('\tCALL', self.proc, end=' ')
         self.then.debug(names=names, end=end)
 
 class BranchCont(Cont):
@@ -113,14 +142,10 @@ class BranchCont(Cont):
     def uses(self):
         return frozenset({self.value})
 
-    def debug(self, names=None, end='\n', file=None):
-        print('\tBRANCH ' + self.value.name(names), end=' ', file=file)
+    def debug(self, names=None, end='\n'):
+        print('\tBRANCH ' + self.value.name(names), end=' ')
         self.ttrue.debug(names=names, end=' ')
         self.tfals.debug(names=names, end=end)
-
-class Type(enum.Enum):
-    VOID = enum.auto()
-    INT = enum.auto()
 
 class Opcode(enum.Enum):
     NOP = enum.auto()

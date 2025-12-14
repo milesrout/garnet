@@ -1,38 +1,43 @@
 import enum
 
-class Register(enum.Enum):
-    X0 = enum.auto()
-    RA = enum.auto()
-    SP = enum.auto()
-    GP = enum.auto()
-    TP = enum.auto()
-    T0 = enum.auto()
-    T1 = enum.auto()
-    T2 = enum.auto()
-    FP = enum.auto()
-    S1 = enum.auto()
-    A0 = enum.auto()
-    A1 = enum.auto()
-    A2 = enum.auto()
-    A3 = enum.auto()
-    A4 = enum.auto()
-    A5 = enum.auto()
-    A6 = enum.auto()
-    A7 = enum.auto()
-    S2 = enum.auto()
-    S3 = enum.auto()
-    S4 = enum.auto()
-    S5 = enum.auto()
-    S6 = enum.auto()
-    S7 = enum.auto()
-    S8 = enum.auto()
-    S9 = enum.auto()
-    S10 = enum.auto()
-    S11 = enum.auto()
-    T3 = enum.auto()
-    T4 = enum.auto()
-    T5 = enum.auto()
-    T6 = enum.auto()
+class Register(enum.IntEnum):
+    X0 = 0
+    RA = 1
+    SP = 2
+    GP = 3
+    TP = 4
+    T0 = 5
+    T1 = 6
+    T2 = 7
+    FP = 8
+    S1 = 9
+    A0 = 10
+    A1 = 11
+    A2 = 12
+    A3 = 13
+    A4 = 14
+    A5 = 15
+    A6 = 16
+    A7 = 17
+    S2 = 18
+    S3 = 19
+    S4 = 20
+    S5 = 21
+    S6 = 22
+    S7 = 23
+    S8 = 24
+    S9 = 25
+    S10= 26
+    S11= 27
+    T3 = 28
+    T4 = 29
+    T5 = 30
+    T6 = 31
+
+REGALLOC = [Register.T0, Register.T1, Register.T2, Register.T3, Register.T4,
+            Register.T5, Register.T6, Register.S1, Register.S2, Register.S3,
+            Register.S4, Register.S5, Register.S6, Register.S7, Register.S8,
+            Register.S9, Register.S10, Register.S11]
 
 class Opcode(enum.Enum):
     ADDI = enum.auto()

@@ -1,36 +1,41 @@
 prog0 = '''
-var x, y, z, out;
 procedure test;
-  out := out;
-begin
-  x := unopt 1;
-  y := unopt 2;
-  x := x / 32;
-  y := y / 2;
-  x := x / 3;
-  x := x / y;
-  while x < 10 do
-    begin
-      y := x + x + x;
-      if x < 5 then x := 5;
-      y := x + x + x;
-      x := x + 1
-    end;
-  y := x;
-  out := unopt y
-end.
+  param in;
+  test := in;
+procedure inner;
+  var x, y, z;
+  begin
+    x := unopt 1;
+    y := unopt 2;
+    x := x / 32;
+    y := y / 2;
+    x := x / 3;
+    x := x / y;
+    while x < 10 do
+      begin
+	y := x + x + x;
+	if x < 5 then x := 5;
+	y := x + x + x;
+	x := x + 1
+      end;
+    y := x;
+    z := call test(y);
+    call print(z)
+  end;
+call inner.
 '''
 
 prog0a = '''
 var x, y;
 procedure hello;
-  x := y;
+  x := x;
 begin
-  x := 0;
-  while x < 10 do
+  y := 0;
+  while y < 10 do
     begin
-      if x < 5 then x := 5;
-      x := x + 1
+      if y < 5 then y := 5;
+      y := y + 1;
+      call hello
     end;
   y := x
 end.

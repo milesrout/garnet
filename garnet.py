@@ -7,7 +7,7 @@ import unittest
 
 import garnetast as ast
 from parse import parse
-from checkvars import checkvars
+from sem import analyse
 from convertssa import convertssa
 from opt import optimise
 from sel.riscv64 import inssel
@@ -17,8 +17,9 @@ from regalloc import regalloc
 def main():
     from examples import prog0 as source
     prog = parse(source)
-    const, escaped, free = checkvars(prog)
-    proc = convertssa(prog, const, escaped, free)
+    symbols = analyse(prog)
+    proc = convertssa(prog, symbols)
+    proc.debug()
     proc0 = optimise(proc)
     proc1 = inssel(proc0)
     with open('dominator.dot', 'w') as file:
@@ -60,17 +61,16 @@ class DebugVisualiser:
             for p in block.params:
                 if p not in names:
                     if SHOWREG:
-                        names[p] = 'r' + str(self.cols[block][p])
+                        names[p] = str(self.cols[block][p])
                     else:
                         names[p] = 'p' + str(next(pcounter))
             for i, inst in enumerate(block.insts):
                 if inst not in names:
                     if SHOWREG and inst in self.cols[block]:
-                        names[inst] = 'r' + str(self.cols[block][inst])
+                        names[inst] = str(self.cols[block][inst])
                     else:
                         names[inst] = 'v' + str(next(counter))
         idom = {k.label: v.label for k, v in self.dom.idom.items()}
-        #print('digraph {')
         for block in proc.blocks:
             print('\t', block.label, f'[shape=box nojustify=true label="', end='')
             params = ', '.join(names[param] for param in block.params)
@@ -93,7 +93,6 @@ class DebugVisualiser:
                 print('\t', block.label, '->', block.succs[i].label)
         for i, j in idom.items():
             print('\t', i, '->', j, '[color=red,constraint=false]')
-        #print('}')
 
 if __name__ == '__main__':
     main()

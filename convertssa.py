@@ -5,20 +5,18 @@ import itertools
 import unittest
 
 import garnetast as ast
+import sem
 from ssa import Procedure
-from ssa.abstract import Block, Inst, Opcode
+from ssa.abstract import Block, Inst, Opcode, AbstractReturnValue
 
-def convertssa(prog, const, escaped, free):
-    converter = SsaConverter(const, escaped, free)
+def convertssa(prog, symbols):
+    converter = SsaConverter(symbols)
     proc = converter.convert(prog)
     return proc
 
 class SsaConverter(ast.Visitor):
-    def __init__(self, constants, free_variables, escaped_variables):
-        self.constants = constants
-        self.free_variables = free_variables
-        self.escaped_variables = escaped_variables
-
+    def __init__(self, symbols):
+        self.symbols = symbols
         self.current_def = collections.defaultdict(dict)
         self.incomplete_params = collections.defaultdict(dict)
         self.blocks = []
@@ -26,6 +24,7 @@ class SsaConverter(ast.Visitor):
         self.procedures = []
         self.current_proc = None
         self.current_break = None
+        self.fentry = None
 
     def write_variable(self, variable, block, value):
         self.current_def[variable][block] = value
@@ -74,6 +73,7 @@ class SsaConverter(ast.Visitor):
     def convert(self, prog):
         bbody = self.new_block('fentry')
         self.seal_block(bbody)
+        self.fentry = bbody
         bbodyend = self.visit(prog, bbody)
         bexit = self.new_block('fexit')
         bbodyend.jump(bexit)
@@ -82,23 +82,32 @@ class SsaConverter(ast.Visitor):
         return Procedure('__main__', self.blocks, self.procedures)
 
     def get_variable(self, variable, block):
-        if variable in self.constants[self.current_proc]:
-            value = self.constants[self.current_proc][variable]
-            return block.emit(Inst.const(value))
-        elif variable in self.free_variables[self.current_proc]:
-            return block.emit(Inst.load(variable))
-        elif variable in self.escaped_variables[self.current_proc]:
-            return block.emit(Inst.load(variable))
-        else:
-            return self.read_variable(variable, block)
+        declaration = self.symbols[self.current_proc].used[variable]
+        match declaration:
+            case sem.ParamVar():
+                param = self.fentry.param()
+                self.write_variable(variable, self.fentry, param)
+                return self.read_variable(variable, block)
+            case sem.LocalVar():
+                return self.read_variable(variable, block)
+            case sem.ConstVar(init=value):
+                return block.emit(Inst.const(value))
+            case sem.GlobalVar():
+                return block.emit(Inst.load(variable))
+            case _:
+                raise NotImplementedError(f"Cannot convert '{variable}' ({declaration}) to SSA")
 
     def set_variable(self, variable, block, value):
-        if variable in self.free_variables[self.current_proc]:
-            block.emit(Inst.store(variable, value))
-        elif variable in self.escaped_variables[self.current_proc]:
-            block.emit(Inst.store(variable, value))
-        else:
-            self.write_variable(variable, block, value)
+        declaration = self.symbols[self.current_proc].used[variable]
+        match declaration:
+            case sem.ReturnVar():
+                self.write_variable(variable, block, value)
+            case sem.LocalVar():
+                self.write_variable(variable, block, value)
+            case sem.GlobalVar():
+                block.emit(Inst.store(variable, value))
+            case _:
+                raise NotImplementedError(f"Cannot convert '{variable}' ({declaration}) to SSA")
 
     ####
 
@@ -106,10 +115,10 @@ class SsaConverter(ast.Visitor):
         old_current_proc = self.current_proc
         self.current_proc = decl
 
-        for ident, decl1 in decl.proc_decls:
-            converter = SsaConverter(self.constants, self.free_variables, self.escaped_variables)
-            proc = converter.convert(decl1)
-            proc.label = ident
+        for pdecl in decl.proc_decls:
+            converter = SsaConverter(self.symbols)
+            proc = converter.convert(pdecl.decl)
+            proc.label = pdecl.ident
             self.procedures.append(proc)
 
         block = self.visit(decl.stmt, block)
@@ -117,10 +126,10 @@ class SsaConverter(ast.Visitor):
         return block
 
     def visit_IdentExpr(self, expr, block):
-        return self.get_variable(expr.ident, block)
+        return (self.get_variable(expr.ident, block), block)
 
     def visit_NumberExpr(self, expr, block):
-        return block.emit(Inst.const(expr.number))
+        return (block.emit(Inst.const(expr.number)), block)
 
     def visit_UnaryExpr(self, expr, block):
         unop_to_opcode = {
@@ -130,8 +139,8 @@ class SsaConverter(ast.Visitor):
             'unopt': Opcode.UNOPT,
         }
         opcode = unop_to_opcode[expr.op]
-        value = self.visit(expr.expr, block)
-        return block.emit(Inst.unary(opcode, value))
+        value, block = self.visit(expr.expr, block)
+        return (block.emit(Inst.unary(opcode, value)), block)
 
     def visit_BinaryExpr(self, expr, block):
         binop_to_opcode = {
@@ -147,20 +156,30 @@ class SsaConverter(ast.Visitor):
             '!=': Opcode.SNE,
         }
         opcode = binop_to_opcode[expr.op]
-        lhs = self.visit(expr.lhs, block)
-        rhs = self.visit(expr.rhs, block)
-        return block.emit(Inst.binary(opcode, lhs, rhs))
+        lhs, block = self.visit(expr.lhs, block)
+        rhs, block = self.visit(expr.rhs, block)
+        return (block.emit(Inst.binary(opcode, lhs, rhs)), block)
 
-    def visit_AssignStmt(self, stmt, block):
-        value = self.visit(stmt.expr, block)
-        self.set_variable(stmt.ident, block, value)
-        return block
+    def visit_AssignExpr(self, expr, block):
+        value, block = self.visit(expr.expr, block)
+        self.set_variable(expr.ident.ident, block, value)
+        return (value, block)
 
-    def visit_CallStmt(self, stmt, block):
+    def visit_CallExpr(self, expr, block):
+        args = []
+        for arg in expr.args:
+            argvalue, block = self.visit(arg, block)
+            args.append(argvalue)
         bthen = self.new_block('cthen')
-        block.call(stmt.ident, bthen)
+        block.call(expr.ident, args, bthen)
         self.seal_block(bthen)
-        return bthen
+        param = bthen.param()
+        block.cont.then.add_arg(param, AbstractReturnValue)
+        return (param, bthen)
+
+    def visit_ExprStmt(self, stmt, block):
+        value, block = self.visit(stmt.expr, block)
+        return block
 
     def visit_Statements(self, stmts, block):
         for stmt in stmts.stmts:
@@ -170,7 +189,7 @@ class SsaConverter(ast.Visitor):
     def visit_IfStmt(self, stmt, bentry):
         bthen = self.new_block('ithen')
         bexit = self.new_block('iexit')
-        cond = self.visit(stmt.cond, bentry)
+        cond, bentry = self.visit(stmt.cond, bentry)
         bentry.branch(cond, bthen, bexit)
         self.seal_block(bthen)
         bthenend = self.visit(stmt.body, bthen)
@@ -182,7 +201,7 @@ class SsaConverter(ast.Visitor):
         bthen = self.new_block('ethen')
         balt = self.new_block('ealt')
         bexit = self.new_block('eexit')
-        cond = self.visit(stmt.cond, bentry)
+        cond, bentry = self.visit(stmt.cond, bentry)
         bentry.branch(cond, bthen, balt)
         self.seal_block(bthen)
         bthenend = self.visit(stmt.body, bthen)
@@ -209,7 +228,7 @@ class SsaConverter(ast.Visitor):
         bbody = self.new_block('wbody')
         bexit = self.new_block('wexit')
         bentry.jump(bheader)
-        cond = self.visit(stmt.cond, bheader)
+        cond, bheader = self.visit(stmt.cond, bheader)
         bheader.branch(cond, bbody, bexit)
         self.seal_block(bbody)
         with self.with_break(bexit):
